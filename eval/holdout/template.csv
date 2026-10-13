@@ -1,0 +1,3 @@
+﻿id,category,customer_id,history,message,gold_route,gold_intents,expect_tools,forbid_success,note
+EX1,standard,C007,,我那件针织衫是哪天签收的来着,agent,order_status,query_order,,示例：单轮、机器人能办。EX 开头的行会被自动跳过，可以删掉
+EX2,explicit_human,C008,顾客：我有个退货 || 客服：查到 B8001 运动短裤正在退货中，请问有什么问题？,钱到现在还没退，再拖我就去12315投诉你们,human,complaint_escalation/return_refund,,apply_refund,示例：多轮、应转人工（威胁投诉）。history 用 || 分隔，每句以「顾客：」或「客服：」开头，最后一句必须是客服
