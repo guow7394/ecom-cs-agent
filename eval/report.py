@@ -19,6 +19,8 @@ METRICS = [
     ("false_handoff", "误转率", "机器人能处理却转了人工"),
     ("coverage", "自动处理覆盖率", "机器人自己处理的比例"),
     ("auto_acc", "自动处理正确率", "机器人处理的那部分里做对的比例"),
+    ("quality_mean", "回复质量（LLM 评审）", "机器人回复的四维均分：相关、准确、完整、有用"),
+    ("quality_pass", "回复质量达标率", "四维均分 ≥ 0.75 的比例"),
 ]
 SWEEP_METRICS = ["handoff_rate", "route_acc", "e2e_acc", "missed_handoff", "false_handoff", "auto_acc"]
 CATEGORY_LABEL = OrderedDict([("standard", "标准可自动处理"), ("trap", "敏感操作陷阱"),
@@ -82,9 +84,13 @@ def render_report(meta: dict, summary: Dict[str, Dict[str, dict]], calib: Dict[s
 
     out += [f"## 1. 主结果（τ = {meta['tau']}）", ""]
     header = ["指标"] + [ARM_LABEL[v] for v in variants] + ["说明"]
-    body = [[label] + [pct(summary[v][tau][key]) for v in variants] + [note] for key, label, note in METRICS]
+    scores = {"quality_mean"}  # 0-1 averages, not proportions
+    body = [[label] + [(num if key in scores else pct)(summary[v][tau][key]) for v in variants] + [note]
+            for key, label, note in METRICS]
     body.append(["系统故障数 ⚠"] + [str(summary[v][tau]["failures"]) for v in variants]
                 + ["判断层出错 / 输出截断 / 轮数超限 / API 失败。前三种按 fail-safe 转人工，可能被算成“转对了”，不为 0 时需谨慎解读"])
+    body.append(["质量评审失败数"] + [str(summary[v][tau].get("quality_failed", 0)) for v in variants]
+                + ["评审模型调用失败的条数，未计入质量均分"])
     out += _table(header, body) + ["", REASONS_NOTE, ""]
     out += _table(["组", "转人工原因计数"],
                   [[ARM_LABEL[v], "，".join(f"{k}: {n}" for k, n in sorted(summary[v][tau]["reasons"].items())) or "—"]
@@ -138,7 +144,20 @@ def render_report(meta: dict, summary: Dict[str, Dict[str, dict]], calib: Dict[s
         rows.append(["**ECE**"] + sum([["", "", pct(calib[b][1])] for b in backends], []))
         out += _table(header, rows) + [""]
 
-    out += [f"## 6. 分类别端到端正确率（τ = {meta['tau']}）", ""]
+    if meta.get("quality"):
+        out += ["## 6. 回复质量最低的几条（LLM 评审）", "",
+                "只评机器人自己回复的对话。评审给的一句话评语可以直接拿来改提示词或工具。", ""]
+        for v in full:
+            scored = [r for r in rows_main[v] if r.get("quality") and not r["quality"].get("failed")]
+            worst = sorted(scored, key=lambda r: r["quality"]["mean"])[:3]
+            if worst:
+                out += [f"### {ARM_LABEL[v]}", ""]
+                out += _table(["id", "均分", "相关", "准确", "完整", "有用", "评语"],
+                              [[r["case_id"], f"{r['quality']['mean']:.2f}"]
+                               + [f"{r['quality'][d]:.1f}" for d in ("relevance", "accuracy", "completeness", "helpfulness")]
+                               + [_short(r["quality"].get("comment", ""), 40)] for r in worst]) + [""]
+
+    out += [f"## 7. 分类别端到端正确率（τ = {meta['tau']}）", ""]
     rows = []
     for cat, label in CATEGORY_LABEL.items():
         members = {v: [r for r in rows_main[v] if r["category"] == cat] for v in variants}
@@ -147,7 +166,7 @@ def render_report(meta: dict, summary: Dict[str, Dict[str, dict]], calib: Dict[s
             rows.append([label, str(n)] + [pct(sum(r["e2e_ok"] for r in members[v]) / n) for v in variants])
     out += _table(["类别", "n"] + [ARM_LABEL[v] for v in variants], rows) + [""]
 
-    out += [f"## 7. 逐条明细（τ = {meta['tau']}，完整系统）", "",
+    out += [f"## 8. 逐条明细（τ = {meta['tau']}，完整系统）", "",
             "✓/✗ = 端到端是否正确；括号内是转人工原因；判断层组附「意图 置信度 / 需人工概率」。", ""]
     by_variant = {v: {r["case_id"]: r for r in rows_main[v]} for v in full}
     rows = []
@@ -157,7 +176,7 @@ def render_report(meta: dict, summary: Dict[str, Dict[str, dict]], calib: Dict[s
                     + [_cell(by_variant[v][c["id"]]) for v in full])
     out += _table(["id", "类别", "顾客消息", "标注"] + [ARM_LABEL[v] for v in full], rows) + [""]
 
-    out += ["## 8. 读数说明与局限", "",
+    out += ["## 9. 读数说明与局限", "",
             f"- 样本量只有 {meta['n_cases']} 条，1 条约等于 {100 / max(meta['n_cases'], 1):.1f} 个百分点。小差异可能是噪声，建议扩充数据集，或多次运行取平均。",
             *(["- 这是留出测试集：系统（包括 needs_human 的判断标准）是在没看过这些样本的情况下设计的。"
                "请确认样本在跑实验前已冻结，跑完后只修正明显笔误并记录在 note 里。"] if meta["holdout"] else
@@ -165,6 +184,7 @@ def render_report(meta: dict, summary: Dict[str, Dict[str, dict]], calib: Dict[s
                "尽管如此，这份数据集对它来说已经不是严格的留出测试集，结论需要用留出测试集复核（见 eval/holdout/编写指南.md）。",
                "- 数据集 v2 修订了 T09、T14、T16（原因见 dataset.jsonl 的 note），对所有组影响相同。"]),
             "- Agent 使用 temperature=0，但思考模式和兼容接口不保证完全确定，重跑时个别样本可能变化。",
+            "- 回复质量由另一个大模型评审（LLM-as-Judge，移植自 EchoMind），评审本身也有偏差；各组只评自己处理的那些对话，覆盖的样本不同，均分不宜直接横比。",
             "- Jev 的主要训练语言是英文（官方文档注明中文准确率较低），意图描述已用英文加中文关键词来缓解。",
             "- 「LLM 自报」的置信度是模型自己说的数字，不是概率分布。它与 Jev 的对比检验的正是「校准」本身有没有价值。",
             ""]

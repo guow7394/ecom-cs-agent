@@ -71,6 +71,8 @@ def materialize(record: dict, case: dict, tau: float, margin: float = 0.1,
         "needs_human": judgment.needs_human if judgment else None,
         "intent_ok": (judgment.intent in case["gold_intents"]) if judgment else None,
         "route_ok": route_ok, "e2e_ok": e2e_ok, "error": error,
+        # reply quality only means something when the bot itself answered
+        "quality": record.get("quality") if route == "agent" else None,
     }
 
 
@@ -97,6 +99,18 @@ def summarize(rows: Sequence[dict]) -> dict:
         "errors": sum(r["route"] == "error" for r in rows),
         "failures": sum(r["route"] == "error" or r["reason"] in FAILURE_REASONS for r in rows),
         "reasons": dict(Counter(r["reason"] for r in rows if r["reason"])),
+        **_quality_summary(rows),
+    }
+
+
+def _quality_summary(rows: Sequence[dict]) -> dict:
+    judged = [r["quality"] for r in rows if r.get("quality")]
+    scored = [q for q in judged if not q.get("failed")]
+    return {
+        "quality_n": len(scored),
+        "quality_failed": len(judged) - len(scored),
+        "quality_mean": _rate(sum(q["mean"] for q in scored), len(scored)) if scored else None,
+        "quality_pass": _rate(sum(q["passed"] for q in scored), len(scored)),
     }
 
 

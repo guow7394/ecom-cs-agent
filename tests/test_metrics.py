@@ -137,3 +137,26 @@ def test_calibration_buckets_and_ece():
     assert top["accuracy"] == pytest.approx(0.5) and top["mean_confidence"] == pytest.approx(0.95)
     # ECE = 2/3*|0.5-0.95| + 1/3*|0-0.2|
     assert ece == pytest.approx(2 / 3 * 0.45 + 1 / 3 * 0.2)
+
+
+def test_quality_is_attached_only_to_bot_handled_rows():
+    rec = judge_record("A", "logistics_query", 0.6,
+                       agent={"route": "agent", "reason": "", "tools": [tool("query_logistics")]})
+    rec["quality"] = {"mean": 0.9, "passed": True}
+    assert materialize(rec, CASES["A"], 0.5)["quality"] == {"mean": 0.9, "passed": True}
+    assert materialize(rec, CASES["A"], 0.7)["quality"] is None        # gated to a human at 0.7
+
+
+def test_summarize_quality():
+    def q_row(route, quality):
+        return dict(row("agent", route, True), quality=quality)
+    rows = [q_row("agent", {"mean": 0.9, "passed": True}), q_row("agent", {"mean": 0.6, "passed": False}),
+            q_row("agent", {"failed": True, "error": "x"}), q_row("human", None)]
+    s = summarize(rows)
+    assert (s["quality_n"], s["quality_failed"]) == (2, 1)
+    assert s["quality_mean"] == pytest.approx(0.75) and s["quality_pass"] == pytest.approx(0.5)
+
+
+def test_summarize_without_quality():
+    s = summarize([dict(row("agent", "agent", True), quality=None)])
+    assert s["quality_mean"] is None and s["quality_n"] == 0

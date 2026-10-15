@@ -97,6 +97,10 @@ class MockLLM:
         names = [t["name"] for t in (tools or [])]
         if "report_judgment" in names:
             return self._judge(messages)
+        if "report_quality" in names:
+            return LLMResponse([Block("tool_use", id="q1", name="report_quality",
+                                      input={"relevance": 0.8, "accuracy": 0.8, "completeness": 0.7,
+                                             "helpfulness": 0.7, "comment": "mock"})], "tool_use")
         if not tools:  # summariser
             return LLMResponse([Block("text", text="（模拟摘要）" + text_of(messages[-1]["content"])[-200:])])
         last = messages[-1]["content"]

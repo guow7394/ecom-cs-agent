@@ -54,3 +54,19 @@ def test_main_threshold_is_added_to_sweep(tmp_path):
                 "--out", str(tmp_path)])
     summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
     assert set(summary["summary"]["jev"]) == {"0.5", "0.55"}
+
+
+def test_bot_handled_replies_get_a_quality_score(tmp_path):
+    out = main(["--mock", "--arms", "baseline", "--cases", "T01,T19", "--tau", "0.5", "--out", str(tmp_path)])
+    records = {r["case_id"]: r for r in map(json.loads, (out / "results.jsonl").read_text(encoding="utf-8").splitlines())}
+    assert records["T01"]["quality"]["mean"] > 0                         # bot answered: scored
+    assert records["T19"].get("quality") is None                         # handed to a human: not scored
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    assert summary["summary"]["baseline"]["0.5"]["quality_n"] == 1
+    assert "回复质量" in (out / "report.md").read_text(encoding="utf-8")
+
+
+def test_quality_can_be_switched_off(tmp_path):
+    out = main(["--mock", "--arms", "baseline", "--cases", "T01", "--no-quality", "--out", str(tmp_path)])
+    record = json.loads((out / "results.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert record.get("quality") is None

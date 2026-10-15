@@ -28,6 +28,7 @@ from cs_agent.config import default_needs_human_threshold, default_threshold, lo
 from cs_agent.judge import GatePolicy, Judgment, build_state, gate
 from cs_agent.session import new_session
 from eval.metrics import DATASET_PATH, calibration, load_dataset, materialize, separation, summarize
+from eval.quality import QualityJudge
 from eval.report import ARM_LABEL, pct, render_report
 
 ARMS = ("baseline", "jev", "llm", "fusion")
@@ -46,7 +47,8 @@ def needs_agent(judgment: Optional[Judgment], min_tau: float, margin: float) -> 
     return gate(judgment, policy).route == "agent"
 
 
-def run_case(case: dict, arm: str, llm, judge, min_tau: float, margin: float) -> dict:
+def run_case(case: dict, arm: str, llm, judge, min_tau: float, margin: float,
+             quality_judge: Optional[QualityJudge] = None) -> dict:
     record = {"case_id": case["id"], "arm": arm, "judgment": None, "judge_error": "",
               "agent": None, "agent_error": "", "seconds": 0.0}
     started = time.perf_counter()
@@ -69,6 +71,8 @@ def run_case(case: dict, arm: str, llm, judge, min_tau: float, margin: float) ->
                 record["agent"] = {"route": r.route, "reason": r.reason, "reply": r.reply, "tools": r.tools}
             except Exception as e:
                 record["agent_error"] = f"{type(e).__name__}: {e}"
+            if quality_judge is not None and record["agent"] and record["agent"]["route"] == "agent":
+                record["quality"] = quality_judge.score(case, record["agent"]["reply"], record["agent"]["tools"])
     record["seconds"] = round(time.perf_counter() - started, 2)
     return record
 
@@ -86,6 +90,7 @@ def parse_args(argv=None):
     p.add_argument("--cases", default="", help="只跑这些 id，逗号分隔")
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--dataset", default=str(DATASET_PATH))
+    p.add_argument("--no-quality", action="store_true", help="不做 LLM-as-Judge 回复质量评测（省一次模型调用/条）")
     p.add_argument("--out", default="")
     return p.parse_args(argv)
 
@@ -111,13 +116,14 @@ def main(argv=None) -> Path:
 
     llm = build_llm(args.mock)
     judges = {arm: build_judge(ARM_BACKEND[arm], llm, args.mock) for arm in arms}
+    quality_judge = None if args.no_quality else QualityJudge(llm)
 
     started_at = datetime.now()
     t0 = time.perf_counter()
     records = []
     jobs = [(case, arm) for arm in arms for case in cases]
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
-        futures = [pool.submit(run_case, case, arm, llm, judges[arm], thresholds[0], args.margin)
+        futures = [pool.submit(run_case, case, arm, llm, judges[arm], thresholds[0], args.margin, quality_judge)
                    for case, arm in jobs]
         for done, future in enumerate(as_completed(futures), 1):
             rec = future.result()
@@ -150,7 +156,7 @@ def main(argv=None) -> Path:
             "jev_model": "MockJudge" if args.mock else os.getenv("JEV_MODEL", "jev-latest"),
             "n_cases": len(cases), "tau": tau, "tau_key": tau_key, "margin": args.margin,
             "needs_human_threshold": nh_threshold, "thresholds": thresholds, "variants": variants,
-            "dataset": Path(args.dataset).name,
+            "dataset": Path(args.dataset).name, "quality": not args.no_quality,
             "holdout": Path(args.dataset).resolve() != DATASET_PATH.resolve()}
 
     out_dir = Path(args.out) if args.out else RESULTS_DIR / (
@@ -169,9 +175,13 @@ def main(argv=None) -> Path:
     print(("\n[MOCK 模式：数字无实验意义]" if args.mock else "") + f"\n主结果 τ={tau}")
     print(f"{'':<14}" + "".join(f"{ARM_LABEL[v]:<16}" for v in variants))
     for key, label in [("route_acc", "路由准确率"), ("e2e_acc", "端到端正确率"), ("intent_acc", "意图准确率"),
-                       ("handoff_rate", "转人工率"), ("missed_handoff", "漏转率"), ("failures", "系统故障数")]:
-        cells = [str(summary[v][tau_key][key]) if key == "failures" else pct(summary[v][tau_key][key])
-                 for v in variants]
+                       ("handoff_rate", "转人工率"), ("missed_handoff", "漏转率"), ("quality_mean", "回复质量"),
+                       ("failures", "系统故障数")]:
+        def fmt(value, key=key):
+            if key == "failures":
+                return str(value)
+            return "—" if value is None else f"{value:.2f}" if key == "quality_mean" else pct(value)
+        cells = [fmt(summary[v][tau_key][key]) for v in variants]
         print(f"{label:<12}" + "".join(f"{c:<18}" for c in cells))
     print(f"\n报告：{out_dir / 'report.md'}")
     return out_dir
