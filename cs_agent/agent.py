@@ -175,7 +175,7 @@ class CustomerServiceAgent:
 # Factories shared by chat.py and the evaluation
 # ---------------------------------------------------------------------------
 
-JUDGE_BACKENDS = ("none", "jev", "llm")
+JUDGE_BACKENDS = ("none", "jev", "llm", "fusion")
 
 
 def build_llm(mock: bool = False):
@@ -189,6 +189,9 @@ def build_judge(backend: str, llm, mock: bool = False):
         return MockJudge() if mock else JevJudge()
     if backend == "llm":
         return LLMJudge(llm)  # with mock=True, llm is MockLLM, which answers report_judgment
+    if backend == "fusion":
+        from .fusion import FusionJudge  # EchoMind-style LLM + embedding + pattern vote
+        return FusionJudge(LLMJudge(llm))
     raise ValueError(f"unknown judge backend {backend!r}; choose from {JUDGE_BACKENDS}")
 
 

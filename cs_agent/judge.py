@@ -109,6 +109,7 @@ class Judgment:
     latency_ms: float = 0.0
     reason: str = ""
     needs_human: Optional[float] = None   # P(needs a person's judgment), from the second question
+    sources: Optional[dict] = None        # per-leg scores (three-way fusion backend only)
     raw: Optional[dict] = field(default=None, repr=False)
 
     def to_dict(self) -> dict:

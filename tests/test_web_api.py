@@ -26,7 +26,7 @@ def new_session(client, **overrides):
 
 def test_config(client):
     cfg = client.get("/api/config").json()
-    assert cfg["mock"] is True and cfg["judges"] == {"jev": True, "llm": True, "none": True}
+    assert cfg["mock"] is True and cfg["judges"] == {"jev": True, "llm": True, "fusion": True, "none": True}
     assert cfg["default_threshold"] == 0.5
 
 
@@ -87,7 +87,7 @@ def test_without_keys_no_judge_is_available(monkeypatch):
     for key in ("ANTHROPIC_API_KEY", "MODEL_ID", "TYPESAFE_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     client = TestClient(create_app(mock=False))
-    assert client.get("/api/config").json()["judges"] == {"jev": False, "llm": False, "none": False}
+    assert client.get("/api/config").json()["judges"] == {"jev": False, "llm": False, "fusion": False, "none": False}
     response = client.post("/api/sessions", json={"customer_id": "C001", "judge": "none"})
     assert response.status_code == 400 and "--mock" in response.json()["detail"]
 

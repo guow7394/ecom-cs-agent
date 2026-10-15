@@ -10,14 +10,14 @@ def test_mock_run_produces_report(tmp_path):
     assert "MOCK 模式" in report and "阈值扫描" in report and "区分能力" in report and "校准" in report
     summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
     # each judge arm is scored twice: intent-only gate (v1) and intent + needs_human gate
-    assert set(summary["summary"]) == {"baseline", "jev", "jev+nh", "llm", "llm+nh"}
-    assert set(summary["separation"]) == {"jev", "llm"}
+    assert set(summary["summary"]) == {"baseline", "jev", "jev+nh", "llm", "llm+nh", "fusion", "fusion+nh"}
+    assert set(summary["separation"]) == {"jev", "llm", "fusion"}
     assert summary["meta"]["n_cases"] == 5
     for arm in summary["summary"].values():
         assert set(arm) == {"0.3", "0.4", "0.5", "0.6", "0.7", "0.8"}
         assert arm["0.5"]["errors"] == 0 and arm["0.5"]["failures"] == 0
     records = [json.loads(l) for l in (out / "results.jsonl").read_text(encoding="utf-8").splitlines()]
-    assert len(records) == 15
+    assert len(records) == 20
     # baseline never calls a judge; judge arms always do
     assert all(r["judgment"] is None for r in records if r["arm"] == "baseline")
     assert all(r["judgment"] for r in records if r["arm"] != "baseline")

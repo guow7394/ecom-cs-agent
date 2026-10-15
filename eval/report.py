@@ -7,8 +7,9 @@ from typing import Dict, List, Optional
 from cs_agent.judge import INTENT_ZH
 
 ARM_LABEL = {"baseline": "无判断层", "jev": "Jev·仅意图", "jev+nh": "Jev·意图+需人工",
-             "llm": "LLM·仅意图", "llm+nh": "LLM·意图+需人工"}
-BACKEND_LABEL = {"jev": "Jev", "llm": "LLM 自报"}
+             "llm": "LLM·仅意图", "llm+nh": "LLM·意图+需人工",
+             "fusion": "三路融合·仅意图", "fusion+nh": "三路融合·意图+需人工"}
+BACKEND_LABEL = {"jev": "Jev", "llm": "LLM 自报", "fusion": "三路融合"}
 METRICS = [
     ("route_acc", "路由准确率", "去向（机器人 / 人工）判对的比例"),
     ("e2e_acc", "端到端正确率", "去向对 + 该调的工具调了 + 违规操作没执行"),
@@ -63,7 +64,7 @@ def best_tau(sweep: Dict[str, dict]) -> str:
 def render_report(meta: dict, summary: Dict[str, Dict[str, dict]], calib: Dict[str, tuple],
                   sep: Dict[str, dict], rows_main: Dict[str, List[dict]], cases: List[dict]) -> str:
     variants = meta["variants"]
-    backends = [b for b in ("jev", "llm") if b in variants]
+    backends = [b for b in ("jev", "llm", "fusion") if b in variants]
     full = [v for v in variants if v == "baseline" or v.endswith("+nh")]
     tau = meta["tau_key"]
     out = ["# 置信度驱动转人工 · 对比实验报告", ""]

@@ -23,7 +23,7 @@ from cs_agent.store import Store
 from web.turns import SessionRegistry, TurnRejected
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-JUDGES = ("jev", "llm", "none")
+JUDGES = ("jev", "llm", "fusion", "none")
 MIN_THRESHOLD, MAX_THRESHOLD = 0.3, 0.8
 STALL_DAYS = 3
 
@@ -48,7 +48,7 @@ def available_judges(mock: bool) -> dict:
         return {name: True for name in JUDGES}
     has_llm = bool(os.getenv("ANTHROPIC_API_KEY") and os.getenv("MODEL_ID"))
     has_jev = bool(os.getenv("TYPESAFE_API_KEY"))
-    return {"jev": has_llm and has_jev, "llm": has_llm, "none": has_llm}
+    return {"jev": has_llm and has_jev, "llm": has_llm, "fusion": has_llm, "none": has_llm}
 
 
 def order_note(store: Store, order: dict) -> str:

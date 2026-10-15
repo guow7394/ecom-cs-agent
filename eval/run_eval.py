@@ -30,11 +30,12 @@ from cs_agent.session import new_session
 from eval.metrics import DATASET_PATH, calibration, load_dataset, materialize, separation, summarize
 from eval.report import ARM_LABEL, pct, render_report
 
-ARMS = ("baseline", "jev", "llm")
-ARM_BACKEND = {"baseline": "none", "jev": "jev", "llm": "llm"}
+ARMS = ("baseline", "jev", "llm", "fusion")
+ARM_BACKEND = {"baseline": "none", "jev": "jev", "llm": "llm", "fusion": "fusion"}
 # variant -> (arm whose records it replays, use the needs_human check?)
 VARIANTS = {"baseline": ("baseline", False), "jev": ("jev", False), "jev+nh": ("jev", True),
-            "llm": ("llm", False), "llm+nh": ("llm", True)}
+            "llm": ("llm", False), "llm+nh": ("llm", True),
+            "fusion": ("fusion", False), "fusion+nh": ("fusion", True)}
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
 
