@@ -10,7 +10,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, StreamingResponse
@@ -18,9 +18,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from cs_agent.agent import PRODUCT_JUDGES
-from cs_agent.config import DATA_DIR, default_needs_human_threshold, default_threshold, load_env
+from cs_agent.config import (DATA_DIR, PROJECT_ROOT, default_needs_human_threshold, default_threshold,
+                             load_env)
 from cs_agent.memory import MemoryStore
 from cs_agent.store import Store
+from cs_agent.trace import TraceStore, summary
 from web.turns import SessionRegistry, TurnRejected
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -78,10 +80,10 @@ def customers_payload() -> List[dict]:
         } for cid, c in store.customers.items()]
 
 
-def create_app(mock: bool = False) -> FastAPI:
+def create_app(mock: bool = False, trace_dir: Optional[Path] = None) -> FastAPI:
     load_env()
     app = FastAPI(title="售后客服小安 · 演示")
-    registry = SessionRegistry(mock=mock)
+    registry = SessionRegistry(mock=mock, traces=TraceStore(trace_dir))
     customer_ids = set(Store().customers)
 
     @app.get("/api/config")
@@ -92,6 +94,17 @@ def create_app(mock: bool = False) -> FastAPI:
     @app.get("/api/health")
     def health():
         return {"judges": registry.health()}
+
+    @app.get("/api/traces")
+    def traces(limit: int = 20):
+        return [summary(t) for t in registry.traces.recent(max(1, min(limit, 200)))]
+
+    @app.get("/api/trace/{request_id}")
+    def trace(request_id: str):
+        found = registry.traces.get(request_id)
+        if found is None:
+            raise HTTPException(404, "没有这条轨迹（内存只保留最近 200 条，更早的在 .traces/ 里）")
+        return found
 
     @app.get("/api/customers")
     def customers():
@@ -153,7 +166,7 @@ def main() -> None:
     args = parser.parse_args()
 
     import uvicorn
-    app = create_app(mock=args.mock)
+    app = create_app(mock=args.mock, trace_dir=PROJECT_ROOT / ".traces")
     print(f"售后客服小安{'（MOCK 模式）' if args.mock else ''}：打开 http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 

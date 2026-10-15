@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .memory/
 .transcripts/
+.traces/
 # 只保留两次有效的真实实验结果（docs/实验分析.md 引用了它们）
 eval/results/*
 !eval/results/20261013-112606/

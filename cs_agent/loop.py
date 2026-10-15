@@ -13,11 +13,13 @@ forever is worse than one that hands the customer to a human.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, List
+import time
+from typing import Callable, List, Optional
 
 from .llm import block_get, text_of
 
 Dispatch = Callable[[str, dict], str]
+OnRound = Callable[[dict], None]
 
 
 @dataclass
@@ -29,12 +31,20 @@ class LoopOutcome:
 
 
 def agent_loop(llm, system: str, messages: list, tools: List[dict],
-               dispatch: Dispatch, max_rounds: int = 8) -> LoopOutcome:
+               dispatch: Dispatch, max_rounds: int = 8, on_round: Optional[OnRound] = None) -> LoopOutcome:
     for round_no in range(1, max_rounds + 1):
+        started = time.perf_counter()
         response = llm.create(system=system, messages=messages, tools=tools)
         messages.append({"role": "assistant", "content": response.content})
 
         tool_calls = [b for b in response.content if block_get(b, "type") == "tool_use"]
+        if on_round:  # for traces: how long each LLM round took and what it asked for
+            usage = getattr(response, "usage", None)
+            on_round({"round": round_no, "ms": round((time.perf_counter() - started) * 1000),
+                      "stop_reason": getattr(response, "stop_reason", None),
+                      "tools": [block_get(b, "name") for b in tool_calls],
+                      "input_tokens": getattr(usage, "input_tokens", None),
+                      "output_tokens": getattr(usage, "output_tokens", None)})
         if not tool_calls:
             truncated = getattr(response, "stop_reason", None) == "max_tokens"
             return LoopOutcome("" if truncated else text_of(response.content), False, round_no, truncated)

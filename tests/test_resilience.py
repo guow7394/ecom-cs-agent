@@ -130,3 +130,10 @@ def test_agent_keeps_serving_when_jev_is_down(make_session):
 def test_factory_wraps_jev_only_when_asked():
     assert isinstance(build_judge("jev", MockLLM(), mock=True, resilient=True), ResilientJudge)
     assert isinstance(build_judge("jev", MockLLM(), mock=True), MockJudge)   # experiment: pure Jev
+
+
+def test_product_jev_retries_once_because_the_backup_is_waiting(monkeypatch):
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
+    product = build_judge("jev", MockLLM(), resilient=True)
+    assert product.primary.max_retries == 1 and product.primary.client.timeout.read == 5.0
+    assert build_judge("jev", MockLLM()).max_retries == 4              # experiment: keep every sample

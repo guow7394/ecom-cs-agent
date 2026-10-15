@@ -50,7 +50,8 @@ def run_specialist(llm, session: Session, task: str) -> str:
             session.emit("skills", by="specialist", names=matched)
     messages = [{"role": "user", "content": task}]
     outcome = agent_loop(llm, system, messages, box.schemas(SPECIALIST_TOOL_NAMES),
-                         lambda name, args: box.run(name, args).content, SPECIALIST_MAX_ROUNDS)
+                         lambda name, args: box.run(name, args).content, SPECIALIST_MAX_ROUNDS,
+                         on_round=lambda info: session.emit("llm", by="specialist", **info))
     if outcome.exhausted or outcome.truncated:
         return "售后专员处理超时，没有得出结论，建议转人工。"
     return outcome.text or "（售后专员没有返回结论）"

@@ -345,7 +345,15 @@ class Turn {
   }
 
   on_done(e) {
-    if (this.meta) this.meta.textContent = `本轮 ${(e.elapsed_ms / 1000).toFixed(1)}s`;
+    if (!this.meta) this.meta = add(el("div", "block meta", ""));   // a failed turn has no reply bubble
+    this.meta.textContent = `本轮 ${(e.elapsed_ms / 1000).toFixed(1)}s`;
+    if (e.request_id) {
+      const link = el("a", null, `轨迹 ${e.request_id}`);
+      link.href = `/api/trace/${e.request_id}`;
+      link.target = "_blank";
+      link.rel = "noopener";
+      this.meta.append(" · ", link);
+    }
     state.ended = Boolean(e.ended);
   }
 

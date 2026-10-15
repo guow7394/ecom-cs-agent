@@ -30,9 +30,11 @@ from cs_agent.compact import Compactor, llm_summarizer
 from cs_agent.config import default_needs_human_threshold
 from cs_agent.judge import GatePolicy
 from cs_agent.session import new_session
+from cs_agent.trace import TraceStore
 
 CONFIRM_TIMEOUT = 120.0
 MAX_SESSIONS = 20
+TRACE_ONLY_EVENTS = {"llm"}   # per-round LLM timing: kept in the trace, not streamed to the page
 _END_OF_STREAM = object()
 
 
@@ -42,8 +44,10 @@ class TurnRejected(Exception):
 
 class WebSession:
     def __init__(self, customer_id: str, judge: str, threshold: float, mock: bool,
-                 llm=None, confirm_timeout: float = CONFIRM_TIMEOUT, shared_judge=None):
+                 llm=None, confirm_timeout: float = CONFIRM_TIMEOUT, shared_judge=None,
+                 traces: Optional[TraceStore] = None):
         self.id = uuid.uuid4().hex[:12]
+        self.traces = traces or TraceStore()
         self.confirm_timeout = confirm_timeout
         # Fresh copy of the seeded memory per session, so every demo starts from the same data.
         self.memory_dir = tempfile.mkdtemp(prefix="cs-web-")
@@ -53,7 +57,7 @@ class WebSession:
         self.agent = CustomerServiceAgent(
             llm, session, judge=shared_judge or build_judge(judge, llm, mock, resilient=True),
             policy=GatePolicy(threshold=threshold, needs_human_threshold=default_needs_human_threshold()),
-            compactor=Compactor(llm_summarizer(llm)))
+            compactor=Compactor(llm_summarizer(llm)), traces=self.traces)
         self.ended = False
         self._turn_lock = threading.Lock()
         self._events: Optional[queue.Queue] = None
@@ -68,7 +72,7 @@ class WebSession:
 
     def _on_event(self, event_type: str, data: dict) -> None:
         events = self._events
-        if events is not None:
+        if events is not None and event_type not in TRACE_ONLY_EVENTS:
             events.put({"type": event_type, **data})
 
     def _confirm(self, text: str) -> bool:
@@ -113,16 +117,17 @@ class WebSession:
             result = self.agent.handle(text)
             ticket = (self.agent.session.handoff or {}).get("ticket_id") if result.route == "human" else None
             events.put({"type": "reply", "text": result.reply, "route": result.route,
-                        "reason": result.reason, "ticket_id": ticket})
+                        "reason": result.reason, "ticket_id": ticket, "request_id": result.request_id})
         except Exception as e:  # shown in the page; the session stays usable
             self._repair_history()
-            events.put({"type": "error", "message": f"{type(e).__name__}: {e}"})
+            events.put({"type": "error", "message": f"{type(e).__name__}: {e}",
+                        "request_id": self.agent.last_request_id})
         finally:
             self.ended = self.agent.session.handoff is not None
             self._events = None
             self._turn_lock.release()
             events.put({"type": "done", "elapsed_ms": round((time.perf_counter() - started) * 1000),
-                        "ended": self.ended})
+                        "ended": self.ended, "request_id": self.agent.last_request_id})
             events.put(_END_OF_STREAM)
 
     def _repair_history(self) -> None:
@@ -147,8 +152,9 @@ class WebSession:
 class SessionRegistry:
     """In-memory sessions for one local user; the oldest are dropped past max_sessions."""
 
-    def __init__(self, mock: bool, max_sessions: int = MAX_SESSIONS):
+    def __init__(self, mock: bool, max_sessions: int = MAX_SESSIONS, traces: Optional[TraceStore] = None):
         self.mock = mock
+        self.traces = traces or TraceStore()     # shared: /api/trace/{id} finds any session's turn
         self.max_sessions = max_sessions
         self._sessions: "OrderedDict[str, WebSession]" = OrderedDict()
         self._lock = threading.Lock()
@@ -180,7 +186,7 @@ class SessionRegistry:
 
     def create(self, customer_id: str, judge: str, threshold: float) -> WebSession:
         session = WebSession(customer_id, judge, threshold, self.mock, llm=self._shared_llm(),
-                             shared_judge=self._shared_judge(judge))
+                             shared_judge=self._shared_judge(judge), traces=self.traces)
         with self._lock:
             self._sessions[session.id] = session
             while len(self._sessions) > self.max_sessions:

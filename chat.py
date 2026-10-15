@@ -43,6 +43,8 @@ def show_turn(result) -> None:
         arrow = f"{GREEN}→ Agent{RESET}" if g.route == "agent" else f"{RED}→ 转人工（{g.reason}）{RESET}"
         print(f"{GREY}[判断层 {j.backend}] 意图={j.intent}（{INTENT_ZH[j.intent]}） "
               f"置信度={j.confidence:.2f}（阈值 {g.threshold:.2f}） 需人工={j.needs_human:.2f} {RESET}{arrow}")
+        if j.degraded:
+            print(f"{YELLOW}[Jev 暂时不可用，本轮由备用判断层回答] {j.degraded}{RESET}")
     elif result.reason == "judge_error":
         print(f"{RED}[判断层出错，按规则转人工] {result.error}{RESET}")
     for t in result.tools:
@@ -50,6 +52,7 @@ def show_turn(result) -> None:
         preview = t["output"][:80].replace("\n", " ")
         print(f"{GREY}  [{t['by']}] {t['name']} {mark} {preview}{RESET}")
     print(result.reply)
+    print(f"{GREY}[轨迹 {result.request_id}，存在 .traces/]{RESET}")
 
 
 def main() -> None:

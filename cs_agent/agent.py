@@ -10,8 +10,9 @@
       s08 compact history → system prompt (+ s09 memory, + judge hint)
       → s01 agent_loop with s02 tools, s03 gated actions, s06 specialist
 
-handle() is what production uses. The evaluation calls judge + respond
-directly so one judge call can be scored at many thresholds.
+handle() is what production uses; each call gets a request_id and, with a
+TraceStore, a trace of every step (cs_agent/trace.py). The evaluation calls
+judge + respond directly so one judge call can be scored at many thresholds.
 """
 from __future__ import annotations
 
@@ -32,6 +33,7 @@ from .rag import PolicySearcher
 from .session import Session, new_session
 from .subagent import SPECIALIST_TOOL, run_specialist
 from .tools import BASE_TOOL_NAMES, ToolBox
+from .trace import Trace, TraceStore, new_request_id
 
 SYSTEM_TEMPLATE = """你是「小安」，电商平台的售后客服助手。
 顾客ID：{customer_id}（{customer_name}，{level}）；今天是 {today}。
@@ -59,12 +61,16 @@ class TurnResult:
     gate: Optional[GateDecision] = None
     tools: List[dict] = field(default_factory=list)
     error: str = ""
+    request_id: str = ""            # set by handle(); looks up the turn's trace
 
 
 class CustomerServiceAgent:
     def __init__(self, llm, session: Session, judge=None, policy: Optional[GatePolicy] = None,
-                 compactor: Optional[Compactor] = None, max_rounds: int = MAX_ROUNDS):
+                 compactor: Optional[Compactor] = None, max_rounds: int = MAX_ROUNDS,
+                 traces: Optional[TraceStore] = None):
         self.llm = llm
+        self.traces = traces
+        self.last_request_id = ""
         self.session = session
         self.judge = judge
         self.policy = policy or GatePolicy()
@@ -86,6 +92,30 @@ class CustomerServiceAgent:
     # -- production entry point --
 
     def handle(self, text: str) -> TurnResult:
+        trace = Trace(new_request_id(), self.session.customer_id, text)
+        self.last_request_id = trace.request_id
+        s, page = self.session, self.session.on_event
+
+        def record(event_type: str, data: dict) -> None:
+            trace.add(event_type, data)
+            page(event_type, data)
+
+        s.on_event = record
+        try:
+            result = self._handle(text)
+        except Exception as e:
+            trace.finish(error=f"{type(e).__name__}: {e}")
+            raise
+        else:
+            result.request_id = trace.request_id
+            trace.finish(result.reply, result.route, result.reason, result.error)
+            return result
+        finally:
+            s.on_event = page
+            if self.traces is not None:
+                self.traces.save(trace)
+
+    def _handle(self, text: str) -> TurnResult:
         if self.judge is None:
             return self.respond(text)
         judgment, error = None, ""
@@ -162,7 +192,8 @@ class CustomerServiceAgent:
             return box.run(name, args).content
 
         outcome = agent_loop(self.llm, self.system_prompt(judgment, text), self.messages,
-                             box.schemas(BASE_TOOL_NAMES) + [SPECIALIST_TOOL], dispatch, self.max_rounds)
+                             box.schemas(BASE_TOOL_NAMES) + [SPECIALIST_TOOL], dispatch, self.max_rounds,
+                             on_round=lambda info: s.emit("llm", by="main", **info))
         reply, route, reason = outcome.text, "agent", ""
         # Fail safe: a turn the agent could not finish goes to a human, and says why.
         failure = "loop_limit" if outcome.exhausted else "truncated" if outcome.truncated else ""
@@ -202,11 +233,13 @@ def build_judge(backend: str, llm, mock: bool = False, resilient: bool = False):
     if backend == "none":
         return None
     if backend == "jev":
-        primary = MockJudge() if mock else JevJudge()
         if resilient:
+            # Behind the breaker a failed call has a backup, so don't make the customer wait out
+            # four backoffs (0.5+1+2+4 s, seen in a trace): retry once, then let the LLM judge answer.
+            primary = MockJudge() if mock else JevJudge(max_retries=1, timeout=5.0)
             from .resilience import ResilientJudge
             return ResilientJudge(primary, fallback=LLMJudge(llm))
-        return primary
+        return MockJudge() if mock else JevJudge()
     if backend == "llm":
         return LLMJudge(llm)  # with mock=True, llm is MockLLM, which answers report_judgment
     if backend == "fusion":
@@ -218,7 +251,8 @@ def build_judge(backend: str, llm, mock: bool = False, resilient: bool = False):
 def build_agent(customer_id: str, judge_backend: str = "jev", mock: bool = False,
                 threshold: Optional[float] = None, confirm_fn: Optional[ConfirmFn] = None,
                 memory_root: Path = PROJECT_ROOT / ".memory",
-                transcript_dir: Optional[Path] = PROJECT_ROOT / ".transcripts") -> CustomerServiceAgent:
+                transcript_dir: Optional[Path] = PROJECT_ROOT / ".transcripts",
+                trace_dir: Optional[Path] = PROJECT_ROOT / ".traces") -> CustomerServiceAgent:
     load_env()
     llm = build_llm(mock)
     session = new_session(customer_id, memory_root, confirm_fn or (lambda _: True))
@@ -226,4 +260,5 @@ def build_agent(customer_id: str, judge_backend: str = "jev", mock: bool = False
         llm, session, judge=build_judge(judge_backend, llm, mock, resilient=True),
         policy=GatePolicy(threshold=default_threshold() if threshold is None else threshold,
                           needs_human_threshold=default_needs_human_threshold()),
-        compactor=Compactor(llm_summarizer(llm), transcript_dir=transcript_dir))
+        compactor=Compactor(llm_summarizer(llm), transcript_dir=transcript_dir),
+        traces=TraceStore(trace_dir))

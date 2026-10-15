@@ -97,6 +97,8 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .bubble.customer { align-self: flex-end; background: var(--accent-bg); }
 .bubble.agent { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
 .bubble .meta { display: block; color: var(--faint); font-size: 12px; margin-top: 4px; }
+.meta a { color: inherit; }
+.block.meta { color: var(--faint); font-size: 12px; }
 
 .block { align-self: stretch; max-width: 600px; }
 .card {

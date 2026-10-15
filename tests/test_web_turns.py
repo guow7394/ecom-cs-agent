@@ -104,6 +104,7 @@ def test_errors_become_events_and_the_session_survives():
     ws = WebSession("C001", "none", 0.5, mock=True, llm=Boom())
     events = run(ws, "你好")
     assert types(events) == ["error", "done"] and "LLM down" in events[0]["message"]
+    assert ws.traces.get(events[0]["request_id"])["error"].endswith("LLM down")   # the failure is traced
     assert not ws.ended and not ws.busy
     assert ws.agent.messages[-1]["role"] == "assistant"   # history stays user/assistant alternating
 

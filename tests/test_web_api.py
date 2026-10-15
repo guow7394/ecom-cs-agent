@@ -110,3 +110,17 @@ def test_health_reports_the_breaker(client):
     new_session(client)
     jev = client.get("/api/health").json()["judges"]["jev"]
     assert jev["state"] == "closed" and jev["failure_threshold"] == 3
+
+
+def test_each_turn_links_to_its_trace(client):
+    sid = new_session(client)
+    with client.stream("POST", f"/api/sessions/{sid}/messages", json={"text": "A1002 的快递到哪了"}) as r:
+        events = sse_events(r)
+    reply = next(e for e in events if e["type"] == "reply")
+    done = next(e for e in events if e["type"] == "done")
+    assert reply["request_id"] == done["request_id"] and reply["request_id"].startswith("r-")
+    trace = client.get(f"/api/trace/{reply['request_id']}").json()
+    assert trace["route"] == "agent" and [e["type"] for e in trace["events"]][:2] == ["judgment", "gate"]
+    listed = client.get("/api/traces?limit=5").json()
+    assert listed[0]["request_id"] == reply["request_id"] and "events" not in listed[0]
+    assert client.get("/api/trace/r-nope").status_code == 404
