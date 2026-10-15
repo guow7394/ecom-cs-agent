@@ -89,7 +89,15 @@ class CustomerServiceAgent:
             judgment = self.judge.judge(build_state(self.transcript, text))
         except Exception as e:  # fail safe: an unavailable judge means a human looks at it
             error = f"{type(e).__name__}: {e}"
+        if judgment is None:
+            self.session.emit("judgment", error=error)
+        else:
+            self.session.emit("judgment", intent=judgment.intent, intent_zh=INTENT_ZH[judgment.intent],
+                              confidence=judgment.confidence, needs_human=judgment.needs_human,
+                              latency_ms=round(judgment.latency_ms), backend=judgment.backend)
         decision = gate(judgment, self.policy)
+        self.session.emit("gate", route=decision.route, reason=decision.reason, threshold=decision.threshold,
+                          needs_human_threshold=self.policy.needs_human_threshold)
         if decision.route == "human":
             return self.hand_off(text, judgment, decision, error)
         return self.respond(text, judgment, decision)
@@ -136,8 +144,11 @@ class CustomerServiceAgent:
 
         def dispatch(name: str, args: dict) -> str:
             if name == "after_sales_specialist":
+                s.emit("tool_start", name=name, by="main", input=args)
                 s.tool_log.append({"name": name, "input": args, "ok": True, "by": "main", "output": ""})
-                return run_specialist(self.llm, s, args.get("task", ""))
+                conclusion = run_specialist(self.llm, s, args.get("task", ""))
+                s.emit("tool_end", name=name, by="main", ok=True, output=conclusion[:300])
+                return conclusion
             return box.run(name, args).content
 
         outcome = agent_loop(self.llm, self.system_prompt(judgment), self.messages,

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from .config import DATA_DIR
 from .memory import MemoryStore
@@ -20,6 +20,13 @@ def policy_index() -> PolicyIndex:
     return PolicyIndex.from_file(DATA_DIR / "policies.md")
 
 
+EventHandler = Callable[[str, dict], None]
+
+
+def _ignore_event(event_type: str, data: dict) -> None:
+    pass
+
+
 @dataclass
 class Session:
     customer_id: str
@@ -29,6 +36,11 @@ class Session:
     policies: PolicyIndex
     tool_log: List[dict] = field(default_factory=list)
     handoff: Optional[dict] = None
+    # s04-style hook: every step is reported here so a UI can show it live.
+    on_event: EventHandler = _ignore_event
+
+    def emit(self, event_type: str, **data) -> None:
+        self.on_event(event_type, data)
 
 
 def new_session(customer_id: str, memory_root: Path, confirm_fn: ConfirmFn,

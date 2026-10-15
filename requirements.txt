@@ -2,3 +2,5 @@ anthropic>=0.25.0
 python-dotenv>=1.0.0
 httpx>=0.24
 pytest>=7.0
+fastapi>=0.100
+uvicorn>=0.23

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>售后客服小安 · 演示</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <header class="brand">
+        <h1>售后客服小安</h1>
+        <span id="mock-badge" class="badge" hidden>MOCK 模式</span>
+      </header>
+
+      <label class="field">顾客
+        <select id="customer"></select>
+      </label>
+      <label class="field">判断层
+        <select id="judge">
+          <option value="jev">Jev 判断层</option>
+          <option value="llm">LLM 自报置信度</option>
+          <option value="none">无判断层</option>
+        </select>
+      </label>
+      <label class="field"><span>置信度阈值 τ = <strong id="threshold-value">0.5</strong></span>
+        <input id="threshold" type="range" min="0.3" max="0.8" step="0.1" value="0.5">
+      </label>
+      <button id="new-session" class="btn" type="button">新会话</button>
+
+      <section class="panel">
+        <h2>订单</h2>
+        <ul id="orders" class="orders"></ul>
+      </section>
+      <section class="panel">
+        <h2>记忆</h2>
+        <p id="memory" class="muted"></p>
+      </section>
+      <section class="panel">
+        <h2>试试这些</h2>
+        <div id="examples" class="chips"></div>
+      </section>
+    </aside>
+
+    <main class="chat">
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <p id="notice" class="notice" hidden></p>
+      <form id="composer" class="composer">
+        <input id="input" type="text" placeholder="以顾客身份输入，回车发送" autocomplete="off">
+        <button class="btn btn-primary" type="submit">发送</button>
+      </form>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

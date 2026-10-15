@@ -87,6 +87,7 @@ class ToolBox:
         return [TOOL_SCHEMAS[n] for n in names]
 
     def run(self, name: str, args: dict) -> ToolResult:
+        self.session.emit("tool_start", name=name, by=self.by, input=args or {})
         handler = getattr(self, f"_{name}", None)
         if name not in TOOL_SCHEMAS or handler is None:
             result = ToolResult(False, f"未知工具：{name}")
@@ -99,6 +100,7 @@ class ToolBox:
                 result = ToolResult(False, f"工具出错：{type(e).__name__}: {e}")
         self.session.tool_log.append({"name": name, "input": args, "ok": result.ok,
                                       "by": self.by, "output": result.content[:300]})
+        self.session.emit("tool_end", name=name, by=self.by, ok=result.ok, output=result.content[:300])
         return result
 
     # -- read-only tools --
