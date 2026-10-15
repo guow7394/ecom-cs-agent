@@ -57,7 +57,7 @@ POST https://api.typesafe.ai/v1/systemone
 - **置信度定义（Jev 官方）：** `confidence = (p_max − 1/n) / (1 − 1/n)`。概率平均分布时为 0，全部压在一个选项上时为 1。
 - **为什么要第二道题：** v1 实验发现，意图置信度衡量的是「属于哪个意图」有多确定，而不是「机器人能不能办」。例如顾客说「洗了一次掉色，你说怎么办」，意图（退换）很清楚，但是否算质量问题需要人判断。`needs_human` 的判断标准取自政策文档里「需人工处理」的条款。
 - **门控在代码里，不在模型里**（`gate()` 是纯函数）。Jev 文档建议「阈值随风险升高」，所以敏感意图（退款/换货/改地址）的阈值自动 +0.1。
-- **判断层出错（网络、限流、格式异常）一律转人工**，即 fail-safe。
+- **判断层出错不会把顾客晾着**：产品里 Jev 外面包了一层熔断器，Jev 出错时当轮立刻改用 LLM 判断层回答；备用判断层也失败才按 fail-safe 转人工（见下面「可靠性与可观测性」）。实验里用的是裸 Jev，每组只测一种方法。
 - 有三个可替换的后端：`JevJudge`（HTTP 直连，429/529 指数退避重试）、`LLMJudge`（DeepSeek 用 tool_use 报告自己的置信度和 needs_human，定义与 Jev 完全相同，作为对照组）、`MockJudge`（离线）。
 - 没有用 Jev 的官方 Python SDK，因为它要求 Python ≥ 3.10。这里直接走 HTTP，所以 3.9 也能跑。
 
@@ -69,6 +69,16 @@ POST https://api.typesafe.ai/v1/systemone
 | 回复质量评测 `eval/quality.py` | LLM-as-Judge：评审模型结合工具调用记录和标注要点，从相关、准确、完整、有用四维打分，均分 ≥ 0.75 算达标；评审失败单独计数 |
 | Skills 业务规范 `cs_agent/skills.py` | 规范目录常驻提示词，命中关键词的规范自动注入全文，其余用 `load_skill` 按需加载 |
 | RAG 改写与重排 `cs_agent/rag.py` | 问题改写成多个查询 → 分别召回 → 去重 → LLM 重排；每一步失败都回退到普通检索并在摘要里注明原因，`RAG_REWRITE=0` 可关闭 |
+
+## 可靠性与可观测性
+
+| 功能 | 做什么 |
+|---|---|
+| 判断层熔断降级 `cs_agent/resilience.py` | Jev 是外部服务，限流随时可能变。熔断器有三种状态：正常时用 Jev；连续 3 次出错或超过 3 秒就「断开」，60 秒内直接用 LLM 判断层；冷却后放一个请求去探测，成功就恢复。出错的那一轮当场改用备用判断层，不会因为 Jev 挂了就把所有顾客都推给人工。降级的判断带 `degraded` 原因，网页上会显示黄色提示。网页里所有会话共用同一个熔断器，状态可以在 `GET /api/health` 查看 |
+| 请求级轨迹 `cs_agent/trace.py` | 每轮对话一个 `request_id`，记录这一轮所有步骤的相对时间：判断、门控、每一轮 LLM 调用（耗时、token、要调的工具）、每个工具的输入输出，以及耗时拆分（判断层 / LLM / 其他）。内存保留最近 200 条，同时写入 `.traces/日期.jsonl`（不进 git）。网页每轮回复下面有轨迹链接，也可以用 `GET /api/traces`、`GET /api/trace/{id}` 查询；命令行每轮会打印轨迹 id |
+| 评测回归检测 `eval/regression.py` | 新一轮评测和基线逐项对比：准确率类指标相对下降超过 5% 算变差，漏转率和误转率上升 5 个百分点及以上算变差，故障数只要增加就算变差，判断层的 AUROC 也会对比。同时列出「对→错」翻转的用例；用例集不同、模型或阈值变了都会提示 |
+
+轨迹已经发现过一个实际问题：Jev 不可用时，判断层一步要等 9.9 秒，而备用判断层自己只用了 2.3 秒。多出来的 7.5 秒是 Jev 客户端 4 次重试的退避时间（0.5+1+2+4 秒）。产品里 Jev 外面已经有熔断器兜底，重试只是让顾客干等，所以改成只重试 1 次、超时 5 秒，判断层降到约 2 秒。实验里仍然重试 4 次，尽量不丢样本。
 
 ## 快速开始
 
@@ -117,7 +127,7 @@ python3 -m web.server --mock
 不需要任何 key（关键词规则，回答没有意义，只用来看流程）。配好 `.env` 后去掉 `--mock`，就是真实的 Jev + DeepSeek。然后打开 http://127.0.0.1:8000 。
 
 - **左栏：** 选顾客、判断层（Jev / LLM 自报 / 无判断层）、置信度阈值；下面是该顾客的订单和记忆，还有几条示例句，点一下就发送。
-- **对话流：** 每轮按真实发生的顺序出现：判断层卡片（意图、置信度条、需人工条，带阈值竖线和耗时）→ 门控去向 → 工具调用逐条出现（前台 / 专员，✓ / ✗）→ 退款等敏感操作弹出确认条 → 回复（带本轮总耗时）。
+- **对话流：** 每轮按真实发生的顺序出现：判断层卡片（意图、置信度条、需人工条，带阈值竖线和耗时；Jev 不可用时有黄色降级提示）→ 门控去向 → 工具调用逐条出现（前台 / 专员，✓ / ✗）→ 退款等敏感操作弹出确认条 → 回复（带本轮总耗时和轨迹链接）。
 - **对比演示：** 同一句话切换判断层分别发一次，能直观看到差别：直接转人工的对话 0.3 秒左右就有结果，交给大模型的对话要等十几秒。
 - **实现：**
   - 给 Agent 加了事件钩子（learn-claude-code s04 的思路），每一步都会通过 `session.emit()` 报告出来。
@@ -180,24 +190,40 @@ python3 -m eval.run_eval
   - `agree`：计算两人标注一致性（Cohen's kappa）
 - 运行：`python3 -m eval.run_eval --dataset eval/holdout/dataset.jsonl --out eval/results/holdout-v1`
 
+## 回归检测
+
+改了提示词、换了模型或升级 Jev 之后，用同一个测试集再跑一次，并和之前的结果对比：
+
+```bash
+python3 -m eval.run_eval --dataset eval/holdout/dataset.jsonl --baseline eval/results/holdout-v1
+```
+
+对比结果会写进 `summary.json` 的 `regression_check` 和报告末尾的「回归检测」一节。加上 `--fail-on-regression` 后，只要有指标变差，退出码就是 1，可以直接放进 CI。两次已经跑完的评测也可以单独对比：`python3 -m eval.regression <新结果目录> <基线目录>`。
+
+用仓库里的 v3 和 v2 对比，工具标出「无判断层」组漏转率从 0% 升到 15.4%，翻转的用例是 T26 和 T30。这和 [docs/实验分析.md](docs/实验分析.md) 里人工核对的结论一致：这两条正是无判断层组每次结果都不稳定的用例。
+
 ## 测试
 
 ```bash
 python3 -m pytest -q
 ```
 
-共 212 个测试，全部离线，不需要 key。覆盖业务规则边界、权限三道闸、RAG、记忆、压缩切点、置信度公式（对照 Jev 文档的例子）、Jev 请求格式与重试、门控、Agent 端到端，以及用真实 anthropic SDK 加假 HTTP 服务器验证的请求格式、指标计算和数据集合法性。
+共 249 个测试，全部离线，不需要 key。覆盖业务规则边界、权限三道闸、RAG、记忆、压缩切点、置信度公式（对照 Jev 文档的例子）、Jev 请求格式与重试、门控、Agent 端到端，以及用真实 anthropic SDK 加假 HTTP 服务器验证的请求格式、指标计算和数据集合法性，还有熔断器的状态切换、轨迹记录和回归检测。
 
 ## 目录
 
 ```
 chat.py                 交互 CLI
 web/
-  server.py             FastAPI 接口：配置、顾客、会话、SSE 消息流、确认
+  server.py             FastAPI 接口：配置、顾客、会话、SSE 消息流、确认、轨迹、熔断状态
   turns.py              每个会话的后台线程、事件队列、确认等待
   static/               前端页面（index.html / style.css / app.js）
 cs_agent/
   judge.py              判断层：意图定义、Jev / LLM / Mock 后端、gate()
+  resilience.py         判断层熔断器：Jev 不可用时降级到 LLM 判断层
+  trace.py              请求级轨迹：每轮的步骤、耗时拆分、JSONL 落盘
+  fusion.py             三路融合判断层（仅实验对照组）
+  skills.py             业务规范加载
   agent.py              CustomerServiceAgent：handle() = judge → gate → respond()
   loop.py               s01 agent_loop
   tools.py              s02 工具定义与分发
@@ -213,6 +239,9 @@ eval/
   dataset.jsonl         30 条标注对话
   run_eval.py           实验驱动
   metrics.py report.py  指标与报告
+  quality.py            回复质量 LLM 评审
+  regression.py         两次评测的回归对比
+  holdout/              留出测试集
 docs/superpowers/       设计文档与实现计划
 tests/
 ```

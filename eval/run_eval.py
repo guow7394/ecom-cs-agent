@@ -3,12 +3,14 @@
     python3 -m eval.run_eval                     # real run: needs DeepSeek + TypeSafe keys in .env
     python3 -m eval.run_eval --mock              # offline smoke run, numbers are meaningless
     python3 -m eval.run_eval --arms baseline,jev --cases T01,T19 --workers 2
+    python3 -m eval.run_eval --dataset eval/holdout/dataset.jsonl --baseline eval/results/holdout-v1
 
 For each (case, arm) the judge is called once and the agent at most once;
 every threshold in --thresholds is then scored offline (see metrics.materialize).
 Each judge arm is scored twice from the same records: "jev" / "llm" with the
 intent-only gate, and "jev+nh" / "llm+nh" with the needs_human check added.
 Outputs eval/results/<timestamp>/{results.jsonl, summary.json, report.md}.
+With --baseline, the run is also compared with an earlier one (eval/regression.py).
 """
 from __future__ import annotations
 
@@ -28,6 +30,7 @@ from cs_agent.config import default_needs_human_threshold, default_threshold, lo
 from cs_agent.judge import GatePolicy, Judgment, build_state, gate
 from cs_agent.session import new_session
 from eval.metrics import DATASET_PATH, calibration, load_dataset, materialize, separation, summarize
+from eval.regression import compare, load_summary, print_check, render_check
 from eval.quality import QualityJudge
 from eval.report import ARM_LABEL, pct, render_report
 
@@ -94,6 +97,8 @@ def parse_args(argv=None):
     p.add_argument("--dataset", default=str(DATASET_PATH))
     p.add_argument("--no-quality", action="store_true", help="不做 LLM-as-Judge 回复质量评测（省一次模型调用/条）")
     p.add_argument("--out", default="")
+    p.add_argument("--baseline", default="", help="和这次评测结果目录对比，检测指标回归")
+    p.add_argument("--fail-on-regression", action="store_true", help="有指标回归时退出码为 1（给 CI 用）")
     return p.parse_args(argv)
 
 
@@ -115,6 +120,7 @@ def main(argv=None) -> Path:
     if args.limit:
         cases = cases[:args.limit]
     by_id = {c["id"]: c for c in cases}
+    baseline = load_summary(Path(args.baseline)) if args.baseline else None   # fail now, not after the run
 
     llm = build_llm(args.mock)
     judges = {arm: build_judge(ARM_BACKEND[arm], llm, args.mock) for arm in arms}
@@ -167,12 +173,17 @@ def main(argv=None) -> Path:
     with open(out_dir / "results.jsonl", "w", encoding="utf-8") as f:
         for rec in records:
             f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
-    (out_dir / "summary.json").write_text(json.dumps(
-        {"meta": meta, "summary": summary,
-         "calibration": {a: {"bins": b, "ece": e} for a, (b, e) in calib.items()},
-         "separation": sep, "rows": rows_main}, ensure_ascii=False, indent=2), encoding="utf-8")
-    (out_dir / "report.md").write_text(render_report(meta, summary, calib, sep, rows_main, cases),
-                                       encoding="utf-8")
+    result = {"meta": meta, "summary": summary,
+              "calibration": {a: {"bins": b, "ece": e} for a, (b, e) in calib.items()},
+              "separation": sep, "rows": rows_main}
+    check = compare(result, baseline) if baseline else None
+    if check:
+        result["regression_check"] = check
+    (out_dir / "summary.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    report = render_report(meta, summary, calib, sep, rows_main, cases)
+    if check:
+        report += "\n\n" + render_check(check)
+    (out_dir / "report.md").write_text(report, encoding="utf-8")
 
     print(("\n[MOCK 模式：数字无实验意义]" if args.mock else "") + f"\n主结果 τ={tau}")
     print(f"{'':<14}" + "".join(f"{ARM_LABEL[v]:<16}" for v in variants))
@@ -185,7 +196,11 @@ def main(argv=None) -> Path:
             return "—" if value is None else f"{value:.2f}" if key == "quality_mean" else pct(value)
         cells = [fmt(summary[v][tau_key][key]) for v in variants]
         print(f"{label:<12}" + "".join(f"{c:<18}" for c in cells))
+    if check:
+        print_check(check)
     print(f"\n报告：{out_dir / 'report.md'}")
+    if check and check["regressions"] and args.fail_on_regression:
+        sys.exit(1)
     return out_dir
 
 

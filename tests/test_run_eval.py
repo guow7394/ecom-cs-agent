@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from eval.run_eval import main
 
 
@@ -70,3 +72,18 @@ def test_quality_can_be_switched_off(tmp_path):
     out = main(["--mock", "--arms", "baseline", "--cases", "T01", "--no-quality", "--out", str(tmp_path)])
     record = json.loads((out / "results.jsonl").read_text(encoding="utf-8").splitlines()[0])
     assert record.get("quality") is None
+
+
+def test_baseline_comparison_is_added_to_the_run(tmp_path):
+    args = ["--mock", "--arms", "baseline,jev", "--cases", "T01,T19", "--tau", "0.5", "--no-quality"]
+    base = main(args + ["--out", str(tmp_path / "base")])
+    out = main(args + ["--out", str(tmp_path / "new"), "--baseline", str(base), "--fail-on-regression"])
+    check = json.loads((out / "summary.json").read_text(encoding="utf-8"))["regression_check"]
+    assert check["comparable"] and check["regressions"] == []        # same mock run, nothing changed
+    assert "## 回归检测" in (out / "report.md").read_text(encoding="utf-8")
+
+
+def test_a_wrong_baseline_path_fails_before_the_run(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        main(["--mock", "--cases", "T01", "--baseline", str(tmp_path / "nope"), "--out", str(tmp_path / "r")])
+    assert not (tmp_path / "r").exists()
