@@ -61,16 +61,14 @@ POST https://api.typesafe.ai/v1/systemone
 - 有三个可替换的后端：`JevJudge`（HTTP 直连，429/529 指数退避重试）、`LLMJudge`（DeepSeek 用 tool_use 报告自己的置信度和 needs_human，定义与 Jev 完全相同，作为对照组）、`MockJudge`（离线）。
 - 没有用 Jev 的官方 Python SDK，因为它要求 Python ≥ 3.10。这里直接走 HTTP，所以 3.9 也能跑。
 
-## 参考 EchoMind 移植的部分
+## 其他能力
 
-以下四块参考了 EchoMind 课程项目，并按本项目做了改造（来源也写在各文件开头的注释里）：
-
-| 模块 | 来源 | 本项目的改动 |
-|---|---|---|
-| 三路融合判断层 `cs_agent/fusion.py` | EchoMind 意图识别：LLM 0.7 + 向量 0.2 + 关键词 0.1 加权投票 | 作为实验第 4 组，和 Jev 校准概率在同一门控下比较；LLM 腿复用本项目的意图和 needs_human 定义 |
-| 回复质量评测 `eval/quality.py` | EchoMind LLM-as-Judge：相关、准确、完整、有用四维打分，均分 ≥ 0.75 达标 | 评审额外看到工具调用记录和标注要点；评审失败单独计数，不当 0.5 分混进均分 |
-| Skills 业务规范 `cs_agent/skills.py` | EchoMind 按角色和关键词注入 Markdown 规范 | 与 learn-claude-code s07 的「目录 + load_skill」两层加载合并 |
-| RAG 改写与重排 `cs_agent/rag.py` | EchoMind 查询改写 → 并行召回 → 去重 → LLM 重排 | 每一步失败都回退到普通检索；`RAG_REWRITE=0` 可关闭 |
+| 模块 | 做什么 |
+|---|---|
+| 三路融合判断层 `cs_agent/fusion.py` | LLM 自评分 ×0.7 + 字符 n-gram 向量相似度 ×0.2 + 关键词 ×0.1 加权投票，作为实验第 4 组，和 Jev 校准概率在同一门控下比较 |
+| 回复质量评测 `eval/quality.py` | LLM-as-Judge：评审模型结合工具调用记录和标注要点，从相关、准确、完整、有用四维打分，均分 ≥ 0.75 算达标；评审失败单独计数 |
+| Skills 业务规范 `cs_agent/skills.py` | 规范目录常驻提示词，命中关键词的规范自动注入全文，其余用 `load_skill` 按需加载 |
+| RAG 改写与重排 `cs_agent/rag.py` | 问题改写成多个查询 → 分别召回 → 去重 → LLM 重排；每一步失败都回退到普通检索并在摘要里注明原因，`RAG_REWRITE=0` 可关闭 |
 
 ## 快速开始
 
