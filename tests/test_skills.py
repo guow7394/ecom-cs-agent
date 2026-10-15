@@ -73,7 +73,7 @@ class SpyLLM(MockLLM):
     def __init__(self):
         self.systems = []
 
-    def create(self, system, messages, tools=None, tool_choice=None, max_tokens=None):
+    def create(self, system, messages, tools=None, tool_choice=None, max_tokens=None, thinking=None):
         self.systems.append(system)
         return super().create(system, messages, tools, tool_choice, max_tokens)
 

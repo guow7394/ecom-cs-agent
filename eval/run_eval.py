@@ -57,6 +57,7 @@ def run_case(case: dict, arm: str, llm, judge, min_tau: float, margin: float,
         session = new_session(case["customer_id"], Path(memory_root), confirm_fn=lambda _: True)
         agent = CustomerServiceAgent(llm, session)
         agent.preload_history([tuple(turn) for turn in case["history"]])
+        memory = session.memory.render(case["customer_id"])   # what the agent sees before this turn
         judgment, run_agent = None, True
         if judge is not None:
             try:
@@ -72,7 +73,8 @@ def run_case(case: dict, arm: str, llm, judge, min_tau: float, margin: float,
             except Exception as e:
                 record["agent_error"] = f"{type(e).__name__}: {e}"
             if quality_judge is not None and record["agent"] and record["agent"]["route"] == "agent":
-                record["quality"] = quality_judge.score(case, record["agent"]["reply"], record["agent"]["tools"])
+                record["quality"] = quality_judge.score(case, record["agent"]["reply"],
+                                                        record["agent"]["tools"], memory)
     record["seconds"] = round(time.perf_counter() - started, 2)
     return record
 

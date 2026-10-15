@@ -84,7 +84,10 @@ REWRITE_SYSTEM = ("把顾客的问题改写成 3 个角度不同、便于在电�
                   "只返回 JSON 字符串数组，例如 [\"运费险理赔\", \"退货运费承担\", \"七天无理由\"]。")
 RERANK_SYSTEM = ("根据顾客的问题，把下面编号的政策片段按相关性从高到低排序。"
                  "只返回片段编号组成的 JSON 数组，例如 [2, 0, 1]。")
-LLM_MAX_TOKENS = 4096  # thinking mode: rerank alone often reasons for 1.5k-2k+ tokens
+LLM_MAX_TOKENS = 4096
+# Rewriting and ranking are formatting jobs: with thinking on, a rerank took 24-27s and
+# ~4k tokens (often truncated); with it off, 0.7s and 27 tokens with the same top result.
+NO_THINKING = {"type": "disabled"}
 _ARRAY_RE = re.compile(r"\[.*?\]", re.S)
 
 
@@ -116,7 +119,7 @@ class PolicySearcher:
     def _ask(self, system: str, content: str, step: str, errors: List[str]) -> Optional[list]:
         try:
             response = self.llm.create(system=system, messages=[{"role": "user", "content": content}],
-                                       max_tokens=LLM_MAX_TOKENS)
+                                       max_tokens=LLM_MAX_TOKENS, thinking=NO_THINKING)
         except Exception as e:
             errors.append(f"{step}失败：{type(e).__name__}")
             return None

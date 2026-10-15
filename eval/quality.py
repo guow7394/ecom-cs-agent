@@ -29,7 +29,7 @@ QUALITY_SYSTEM = """你是电商售后客服的质量评估专家。请对一条
 - helpfulness 有用性：顾客能否据此采取行动（0=毫无帮助，1=非常有帮助）
 
 评分规则：
-- 以「工具调用记录」里的返回内容为事实依据；回复中工具没有证实的承诺（如退款已到账、具体时效）视为不准确。
+- 以「工具调用记录」和「顾客记忆」里的内容为事实依据；回复中工具没有证实的承诺（如退款已到账、具体时效）视为不准确。
 - 「参考要点」是标注者写的正确处理方式，用来判断回复是否做对了。
 - 规则不允许的请求，清楚解释原因并给出可行的下一步，可以得高分；违规答应则准确性很低。
 - 重复索要顾客已经提供的信息，会降低完整性和有用性。
@@ -54,11 +54,12 @@ QUALITY_TOOL = {
 _JSON_RE = re.compile(r"\{.*\}", re.S)
 
 
-def _material(case: dict, reply: str, tools: List[dict]) -> str:
+def _material(case: dict, reply: str, tools: List[dict], memory: str = "") -> str:
     history = "\n".join(f"{'顾客' if role == 'customer' else '客服'}：{text}" for role, text in case.get("history", []))
     calls = "\n".join(f"- {t['name']}（{'成功' if t.get('ok') else '失败/被拦截'}）：{t.get('output', '')[:300]}"
                       for t in tools) or "（没有调用工具）"
-    return (f"之前的对话：\n{history or '（无）'}\n\n顾客这一句：{case['message']}\n\n"
+    return (f"顾客记忆（客服在系统提示里能看到，也算事实依据）：\n{memory or '（无）'}\n\n"
+            f"之前的对话：\n{history or '（无）'}\n\n顾客这一句：{case['message']}\n\n"
             f"工具调用记录（核验资料）：\n{calls}\n\n参考要点：{case.get('note') or '（无）'}\n\n"
             f"待评分的客服回复：\n{reply}")
 
@@ -67,9 +68,9 @@ class QualityJudge:
     def __init__(self, llm):
         self.llm = llm
 
-    def score(self, case: dict, reply: str, tools: List[dict]) -> dict:
+    def score(self, case: dict, reply: str, tools: List[dict], memory: str = "") -> dict:
         request = dict(system=QUALITY_SYSTEM, tools=[QUALITY_TOOL], max_tokens=MAX_TOKENS,
-                       messages=[{"role": "user", "content": _material(case, reply, tools)}])
+                       messages=[{"role": "user", "content": _material(case, reply, tools, memory)}])
         try:
             try:
                 response = self.llm.create(tool_choice={"type": "tool", "name": "report_quality"}, **request)

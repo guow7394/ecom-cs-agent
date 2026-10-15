@@ -44,7 +44,7 @@ class Scripted:
     def __init__(self, *texts, stop="end_turn"):
         self.texts, self.stop, self.calls = list(texts), stop, []
 
-    def create(self, system, messages, tools=None, tool_choice=None, max_tokens=None):
+    def create(self, system, messages, tools=None, tool_choice=None, max_tokens=None, thinking=None):
         self.calls.append({"system": system, "content": messages[-1]["content"]})
         return LLMResponse([Block("text", text=self.texts.pop(0))], self.stop)
 
@@ -119,3 +119,15 @@ def test_llm_failures_are_reported_not_swallowed(make_session):
     s.policy_searcher = PolicySearcher(s.policies, Exploding())
     header = ToolBox(s).run("search_policy", {"query": "退货运费谁出"}).content.splitlines()[0]
     assert "改写失败：TimeoutError" in header
+
+
+def test_rewrite_and_rerank_run_without_thinking():
+    # a ranking/formatting job: thinking took 24-27s and ~4k tokens (often truncated);
+    # without it 0.7s and 27 tokens with the same top result
+    class Recorder(Scripted):
+        def create(self, system, messages, tools=None, tool_choice=None, max_tokens=None, thinking=None):
+            self.calls.append({"thinking": thinking})
+            return LLMResponse([Block("text", text=self.texts.pop(0))], self.stop)
+    llm = Recorder('["运费险怎么理赔"]', "[0, 1, 2, 3, 4]")
+    PolicySearcher(index(), llm).search("退货运费谁出", k=3)
+    assert [c["thinking"] for c in llm.calls] == [{"type": "disabled"}] * 2

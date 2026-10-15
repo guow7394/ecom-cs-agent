@@ -62,3 +62,10 @@ def test_the_reply_is_treated_as_data_not_instructions():
 def test_mock_llm_answers_quality_requests():
     q = QualityJudge(MockLLM()).score(CASE, "（模拟回复）", TOOLS)
     assert "failed" not in q and 0 <= q["mean"] <= 1
+
+
+def test_the_judge_sees_what_the_agent_remembered():
+    # without it, a reply that used customer memory was scored as "fabricated"
+    llm = OneShot(report(relevance=1, accuracy=1, completeness=1, helpfulness=1, comment="ok"))
+    QualityJudge(llm).score(CASE, "上次的水杯退款也在跟进", [], memory="历史售后：A0815 退款 ¥69 未到账")
+    assert "A0815 退款 ¥69 未到账" in llm.kwargs["messages"][0]["content"]

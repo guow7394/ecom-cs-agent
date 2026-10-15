@@ -10,7 +10,7 @@ class ScriptedLLM:
         self.responses = list(responses)
         self.calls = []
 
-    def create(self, system, messages, tools=None, tool_choice=None, max_tokens=None):
+    def create(self, system, messages, tools=None, tool_choice=None, max_tokens=None, thinking=None):
         self.calls.append({"system": system, "messages": list(messages), "tools": tools})
         return self.responses.pop(0)
 

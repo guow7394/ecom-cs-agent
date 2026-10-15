@@ -56,9 +56,11 @@ class AnthropicLLM:
         self.temperature = temperature
         self.max_tokens = max_tokens
 
-    def create(self, system, messages, tools=None, tool_choice=None, max_tokens=None):
+    def create(self, system, messages, tools=None, tool_choice=None, max_tokens=None, thinking=None):
         kwargs = dict(model=self.model, system=system, messages=messages,
                       max_tokens=max_tokens or self.max_tokens, temperature=self.temperature)
+        if thinking:  # e.g. {"type": "disabled"} for simple ranking / formatting calls
+            kwargs["thinking"] = thinking
         if tools:
             kwargs["tools"] = tools
         if tool_choice:
@@ -93,7 +95,7 @@ def _all_user_text(messages) -> str:
 
 
 class MockLLM:
-    def create(self, system, messages, tools=None, tool_choice=None, max_tokens=None):
+    def create(self, system, messages, tools=None, tool_choice=None, max_tokens=None, thinking=None):
         names = [t["name"] for t in (tools or [])]
         if "report_judgment" in names:
             return self._judge(messages)
