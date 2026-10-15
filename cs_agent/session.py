@@ -11,7 +11,7 @@ from typing import Callable, List, Optional
 from .config import DATA_DIR
 from .memory import MemoryStore
 from .permission import ConfirmFn, PermissionGate
-from .rag import PolicyIndex
+from .rag import PolicyIndex, PolicySearcher
 from .skills import SkillManager, default_skills
 from .store import Store
 
@@ -38,6 +38,7 @@ class Session:
     tool_log: List[dict] = field(default_factory=list)
     handoff: Optional[dict] = None
     skills: Optional[SkillManager] = None
+    policy_searcher: Optional[PolicySearcher] = None   # rewrite + rerank; None = plain keyword search
     # s04-style hook: every step is reported here so a UI can show it live.
     on_event: EventHandler = _ignore_event
 

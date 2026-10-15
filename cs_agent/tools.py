@@ -155,10 +155,16 @@ class ToolBox:
         return ToolResult(True, message)
 
     def _search_policy(self, query: str) -> ToolResult:
-        hits = self.session.policies.search(query, k=3)
+        searcher = self.session.policy_searcher
+        if searcher is None:
+            hits, header = self.session.policies.search(query, k=3), ""
+        else:
+            hits, meta = searcher.search(query, k=3)
+            header = (f"【检索】{len(meta['queries'])} 条查询 · 召回 {meta['recalled']} 段"
+                      f"{' · LLM 重排' if meta['reranked'] else ''}\n\n")
         if not hits:
-            return ToolResult(True, "未检索到相关政策")
-        return ToolResult(True, "\n\n".join(h.render() for h in hits))
+            return ToolResult(True, header + "未检索到相关政策")
+        return ToolResult(True, header + "\n\n".join(h.render() for h in hits))
 
     def _load_skill(self, name: str) -> ToolResult:
         skills = self.session.skills

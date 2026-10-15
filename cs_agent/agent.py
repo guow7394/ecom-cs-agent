@@ -15,6 +15,7 @@ directly so one judge call can be scored at many thresholds.
 """
 from __future__ import annotations
 
+import os
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +28,7 @@ from .judge import (INTENT_ZH, GateDecision, GatePolicy, JevJudge, Judgment, LLM
 from .llm import AnthropicLLM, MockLLM
 from .loop import agent_loop
 from .permission import ConfirmFn
+from .rag import PolicySearcher
 from .session import Session, new_session
 from .subagent import SPECIALIST_TOOL, run_specialist
 from .tools import BASE_TOOL_NAMES, ToolBox
@@ -68,6 +70,8 @@ class CustomerServiceAgent:
         self.policy = policy or GatePolicy()
         self.compactor = compactor
         self.max_rounds = max_rounds
+        if session.policy_searcher is None and os.getenv("RAG_REWRITE", "1") != "0":
+            session.policy_searcher = PolicySearcher(session.policies, llm)
         self.messages: list = []                       # what the LLM sees
         self.transcript: List[Tuple[str, str]] = []    # plain text, what the judge sees
 
