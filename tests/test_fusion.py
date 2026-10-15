@@ -88,3 +88,8 @@ def test_fusion_judge_records_an_llm_failure_and_falls_back():
 def test_fusion_backend_is_wired_into_the_factory():
     judge = build_judge("fusion", MockLLM(), mock=True)
     assert judge.judge(build_state([], "快递到哪了")).backend == "fusion"
+
+
+def test_fusion_is_an_experiment_only_backend():
+    from cs_agent.agent import JUDGE_BACKENDS, PRODUCT_JUDGES
+    assert "fusion" in JUDGE_BACKENDS and "fusion" not in PRODUCT_JUDGES

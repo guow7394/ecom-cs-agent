@@ -1,4 +1,4 @@
-"""Three-way intent fusion, ported from EchoMind (core/intent_recognizer.py).
+"""Three-way intent fusion — a comparison arm for the experiment, not offered in the product.
 
     LLM self-report (LLMJudge)        ─┐ x 0.7
     char n-gram embedding vs examples ─┼ x 0.2  → add weighted scores per intent → best intent

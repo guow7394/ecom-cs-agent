@@ -4,7 +4,6 @@
     python3 chat.py --customer C001                 # Jev 判断层（默认）
     python3 chat.py --customer C001 --judge none    # 无判断层（baseline）
     python3 chat.py --customer C001 --judge llm     # DeepSeek 自报置信度
-    python3 chat.py --customer C001 --judge fusion  # 三路加权融合
     python3 chat.py --mock                          # 不需要任何 API key 的离线演示
 
 Customers: C001-C006 (see cs_agent/data/customers.json).
@@ -23,7 +22,7 @@ try:
 except ImportError:
     pass
 
-from cs_agent.agent import JUDGE_BACKENDS, build_agent
+from cs_agent.agent import PRODUCT_JUDGES, build_agent
 from cs_agent.judge import INTENT_ZH
 
 YELLOW, CYAN, GREY, RED, GREEN, RESET = "\033[33m", "\033[36m", "\033[90m", "\033[31m", "\033[32m", "\033[0m"
@@ -56,7 +55,7 @@ def show_turn(result) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="电商售后客服 Agent")
     parser.add_argument("--customer", default="C001")
-    parser.add_argument("--judge", choices=JUDGE_BACKENDS, default="jev")
+    parser.add_argument("--judge", choices=PRODUCT_JUDGES, default="jev")
     parser.add_argument("--threshold", type=float, help="判断层阈值，默认读 HANDOFF_THRESHOLD")
     parser.add_argument("--mock", action="store_true", help="离线模式：MockLLM + MockJudge")
     args = parser.parse_args()

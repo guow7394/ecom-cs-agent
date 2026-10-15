@@ -185,6 +185,10 @@ class CustomerServiceAgent:
 # ---------------------------------------------------------------------------
 
 JUDGE_BACKENDS = ("none", "jev", "llm", "fusion")
+# What the web demo and the CLI offer. "fusion" (hand-weighted LLM + embedding + keywords) is kept
+# only as a comparison arm in the experiment: its score scale drifts with the data, so its threshold
+# cannot be set in advance (see docs/实验分析.md sections 7.2 and 8.4).
+PRODUCT_JUDGES = ("jev", "llm", "none")
 
 
 def build_llm(mock: bool = False):
@@ -199,7 +203,7 @@ def build_judge(backend: str, llm, mock: bool = False):
     if backend == "llm":
         return LLMJudge(llm)  # with mock=True, llm is MockLLM, which answers report_judgment
     if backend == "fusion":
-        from .fusion import FusionJudge  # EchoMind-style LLM + embedding + pattern vote
+        from .fusion import FusionJudge  # comparison arm only, not offered in the product
         return FusionJudge(LLMJudge(llm))
     raise ValueError(f"unknown judge backend {backend!r}; choose from {JUDGE_BACKENDS}")
 
