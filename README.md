@@ -2,7 +2,7 @@
 
 以 [learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) 的 Agent 骨架为基础，做了一个电商售后客服 Agent。
 
-**创新点：** 每轮对话先用 [TypeSafe Jev](https://docs.typesafe.ai/introduction) 做一次结构化判断，同一次调用并行回答两道题：「意图 + 0~1 置信度」和「是否需要人工判断（0~1 概率）」。由代码门控：置信度低于阈值、意图本身需要人工、或需要人工判断时，直接转人工，LLM 根本不会被调用。项目还附带 30 条标注对话，三组对比「无判断层 / Jev 判断层 / LLM 自报置信度判断层」的准确率。
+**创新点：** 每轮对话先用 [TypeSafe Jev](https://docs.typesafe.ai/introduction) 做一次结构化判断，同一次调用并行回答两道题：「意图 + 0~1 置信度」和「是否需要人工判断（0~1 概率）」。由代码门控：置信度低于阈值、意图本身需要人工、或需要人工判断时，直接转人工，LLM 根本不会被调用。项目还附带 30 条标注对话，四组对比「无判断层 / Jev 判断层 / LLM 自报置信度 / 三路加权融合」，检验校准概率是否比手工加权的置信度更适合做转人工门控。
 
 ```
 顾客消息
@@ -28,7 +28,8 @@
 | s06 子 Agent | 前台 Agent 负责接待，退换货交给「售后专员」子 Agent（独立 messages，只回传结论） | `cs_agent/subagent.py` |
 | s08 上下文压缩 | 超长后把早期对话总结成摘要，切点保证不拆开 tool_use/tool_result，原文存 `.transcripts/` | `cs_agent/compact.py` |
 | s09 记忆 | 每位顾客一个 JSON：尺码偏好（Agent 用工具写）+ 售后历史（操作成功后由代码写，不会被编造） | `cs_agent/memory.py` |
-| — | **判断层（创新点）** | `cs_agent/judge.py` |
+| s07 Skills | 退货退款、换货、物流催件、投诉安抚四份处理规范：规范目录常驻提示词，命中关键词的自动注入全文，其余可用 `load_skill` 按需加载 | `cs_agent/skills.py`、`cs_agent/data/skills/` |
+| — | **判断层（创新点）** | `cs_agent/judge.py`、`cs_agent/fusion.py` |
 
 ## 判断层怎么做
 
@@ -59,6 +60,17 @@ POST https://api.typesafe.ai/v1/systemone
 - **判断层出错（网络、限流、格式异常）一律转人工**，即 fail-safe。
 - 有三个可替换的后端：`JevJudge`（HTTP 直连，429/529 指数退避重试）、`LLMJudge`（DeepSeek 用 tool_use 报告自己的置信度和 needs_human，定义与 Jev 完全相同，作为对照组）、`MockJudge`（离线）。
 - 没有用 Jev 的官方 Python SDK，因为它要求 Python ≥ 3.10。这里直接走 HTTP，所以 3.9 也能跑。
+
+## 参考 EchoMind 移植的部分
+
+以下四块参考了 EchoMind 课程项目，并按本项目做了改造（来源也写在各文件开头的注释里）：
+
+| 模块 | 来源 | 本项目的改动 |
+|---|---|---|
+| 三路融合判断层 `cs_agent/fusion.py` | EchoMind 意图识别：LLM 0.7 + 向量 0.2 + 关键词 0.1 加权投票 | 作为实验第 4 组，和 Jev 校准概率在同一门控下比较；LLM 腿复用本项目的意图和 needs_human 定义 |
+| 回复质量评测 `eval/quality.py` | EchoMind LLM-as-Judge：相关、准确、完整、有用四维打分，均分 ≥ 0.75 达标 | 评审额外看到工具调用记录和标注要点；评审失败单独计数，不当 0.5 分混进均分 |
+| Skills 业务规范 `cs_agent/skills.py` | EchoMind 按角色和关键词注入 Markdown 规范 | 与 learn-claude-code s07 的「目录 + load_skill」两层加载合并 |
+| RAG 改写与重排 `cs_agent/rag.py` | EchoMind 查询改写 → 并行召回 → 去重 → LLM 重排 | 每一步失败都回退到普通检索；`RAG_REWRITE=0` 可关闭 |
 
 ## 快速开始
 
@@ -123,7 +135,8 @@ python3 -m eval.run_eval
 ```
 
 - 共 90 个任务（30 条 × 3 组），默认 4 个并发。判断层组每条只调一次判断层，阈值 τ ∈ {0.3…0.8} 全部离线计算。被门控挡下的样本不跑 Agent，结果和线上 `handle()` 完全一致。
-- 报告里有 5 列：无判断层、Jev·仅意图、Jev·意图+需人工、LLM·仅意图、LLM·意图+需人工。「仅意图」和「意图+需人工」来自同一批判断结果，只是离线开关 needs_human 检查，所以是干净的消融对比。
+- 报告里有 7 列：无判断层，以及 Jev、LLM 自报、三路融合三种判断层各自的「仅意图」和「意图+需人工」。「仅意图」和「意图+需人工」来自同一批判断结果，只是离线开关 needs_human 检查，所以是干净的消融对比。
+- 机器人自己回复的对话，会再由一个评审模型打四维质量分（LLM-as-Judge），`--no-quality` 可关闭。
 - 结果写到 `eval/results/<时间戳>/`：`report.md`（报告）、`summary.json`（全部指标）、`results.jsonl`（每条原始记录，含回复和工具调用）。
 - 常用参数：`--arms baseline,jev` 只跑部分组；`--cases T01,T19` 只跑部分样本；`--tau 0.6` 改主阈值；`--margin 0` 关闭敏感意图加严；`--needs-human 0.6` 改 needs_human 阈值；`--mock` 离线跑通流程（**数字没有意义**）。
 
@@ -138,6 +151,7 @@ python3 -m eval.run_eval
 | 误转率 | 机器人能处理却转了人工，浪费人力 |
 | 自动处理正确率 | 机器人自己处理的那部分里做对的比例（选择性预测：覆盖率换准确率） |
 | AUROC | 不依赖阈值：判断信号（意图置信度、needs_human）区分「该转人工」和「机器人能办」的能力。0.5 = 随机，1 = 完美 |
+| 回复质量 | LLM 评审给机器人回复打的相关、准确、完整、有用四维均分（0~1），以及均分 ≥ 0.75 的达标率 |
 | 系统故障数 ⚠ | 判断层出错、输出截断、轮数超限。这些按 fail-safe 转人工，可能被算成「转对了」，所以单独列出，不为 0 时要谨慎解读 |
 | 校准表 / ECE | 按置信度分桶的意图准确率。用来检验「置信度高 ⇒ 更准」是否成立 |
 
@@ -174,7 +188,7 @@ python3 -m eval.run_eval
 python3 -m pytest -q
 ```
 
-共 171 个测试，全部离线，不需要 key。覆盖业务规则边界、权限三道闸、RAG、记忆、压缩切点、置信度公式（对照 Jev 文档的例子）、Jev 请求格式与重试、门控、Agent 端到端，以及用真实 anthropic SDK 加假 HTTP 服务器验证的请求格式、指标计算和数据集合法性。
+共 212 个测试，全部离线，不需要 key。覆盖业务规则边界、权限三道闸、RAG、记忆、压缩切点、置信度公式（对照 Jev 文档的例子）、Jev 请求格式与重试、门控、Agent 端到端，以及用真实 anthropic SDK 加假 HTTP 服务器验证的请求格式、指标计算和数据集合法性。
 
 ## 目录
 

@@ -161,7 +161,8 @@ class ToolBox:
         else:
             hits, meta = searcher.search(query, k=3)
             header = (f"【检索】{len(meta['queries'])} 条查询 · 召回 {meta['recalled']} 段"
-                      f"{' · LLM 重排' if meta['reranked'] else ''}\n\n")
+                      f"{' · LLM 重排' if meta['reranked'] else ''}"
+                      f"{''.join(' · ' + e for e in meta.get('errors', []))}\n\n")
         if not hits:
             return ToolResult(True, header + "未检索到相关政策")
         return ToolResult(True, header + "\n\n".join(h.render() for h in hits))

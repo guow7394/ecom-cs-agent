@@ -4,6 +4,7 @@
     python3 chat.py --customer C001                 # Jev 判断层（默认）
     python3 chat.py --customer C001 --judge none    # 无判断层（baseline）
     python3 chat.py --customer C001 --judge llm     # DeepSeek 自报置信度
+    python3 chat.py --customer C001 --judge fusion  # 三路加权融合（参考 EchoMind）
     python3 chat.py --mock                          # 不需要任何 API key 的离线演示
 
 Customers: C001-C006 (see cs_agent/data/customers.json).

@@ -97,3 +97,25 @@ def test_agent_turns_rewrite_on_unless_disabled(make_session, monkeypatch):
     assert CustomerServiceAgent(MockLLM(), make_session()).session.policy_searcher is not None
     monkeypatch.setenv("RAG_REWRITE", "0")
     assert CustomerServiceAgent(MockLLM(), make_session()).session.policy_searcher is None
+
+
+def test_rewrite_and_rerank_leave_room_for_thinking():
+    # measured on deepseek-v4-flash: rerank alone reasons for 1.5k-2k+ tokens; 2048 truncated 2 of 3 calls
+    from cs_agent.rag import LLM_MAX_TOKENS
+    assert LLM_MAX_TOKENS >= 4096
+
+
+class Exploding:
+    def create(self, **kwargs):
+        raise TimeoutError("DeepSeek 超时")
+
+
+def test_llm_failures_are_reported_not_swallowed(make_session):
+    sections, meta = PolicySearcher(index(), Exploding()).search("退货运费谁出", k=3)
+    assert sections and meta["queries"] == ["退货运费谁出"]
+    assert meta["errors"] == ["改写失败：TimeoutError", "重排失败：TimeoutError"]
+    from cs_agent.tools import ToolBox
+    s = make_session()
+    s.policy_searcher = PolicySearcher(s.policies, Exploding())
+    header = ToolBox(s).run("search_policy", {"query": "退货运费谁出"}).content.splitlines()[0]
+    assert "改写失败：TimeoutError" in header

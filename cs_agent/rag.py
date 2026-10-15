@@ -84,7 +84,7 @@ REWRITE_SYSTEM = ("把顾客的问题改写成 3 个角度不同、便于在电�
                   "只返回 JSON 字符串数组，例如 [\"运费险理赔\", \"退货运费承担\", \"七天无理由\"]。")
 RERANK_SYSTEM = ("根据顾客的问题，把下面编号的政策片段按相关性从高到低排序。"
                  "只返回片段编号组成的 JSON 数组，例如 [2, 0, 1]。")
-LLM_MAX_TOKENS = 2048
+LLM_MAX_TOKENS = 4096  # thinking mode: rerank alone often reasons for 1.5k-2k+ tokens
 _ARRAY_RE = re.compile(r"\[.*?\]", re.S)
 
 
@@ -95,7 +95,8 @@ class PolicySearcher:
         self.rewrites = rewrites
 
     def search(self, query: str, k: int = 3) -> Tuple[List[Section], dict]:
-        queries = [query] + [q for q in self._rewrite(query) if q != query][:self.rewrites]
+        errors: List[str] = []
+        queries = [query] + [q for q in self._rewrite(query, errors) if q != query][:self.rewrites]
         merged, seen = [], set()
         for q in queries:
             for section in self.index.search(q, k=max(k, 5)):
@@ -104,35 +105,43 @@ class PolicySearcher:
                     merged.append(section)
         ranked, reranked = merged, False
         if len(merged) > k and self.llm is not None:
-            order = self._rerank(query, merged)
+            order = self._rerank(query, merged, errors)
             if order:
                 ranked, reranked = [merged[i] for i in order], True
-        return ranked[:k], {"queries": queries, "recalled": len(merged), "reranked": reranked}
+        meta = {"queries": queries, "recalled": len(merged), "reranked": reranked}
+        if errors:  # fallbacks stay visible: a silent fallback looks like a model choice
+            meta["errors"] = errors
+        return ranked[:k], meta
 
-    def _ask(self, system: str, content: str) -> Optional[list]:
+    def _ask(self, system: str, content: str, step: str, errors: List[str]) -> Optional[list]:
         try:
             response = self.llm.create(system=system, messages=[{"role": "user", "content": content}],
                                        max_tokens=LLM_MAX_TOKENS)
-        except Exception:
+        except Exception as e:
+            errors.append(f"{step}失败：{type(e).__name__}")
             return None
         if getattr(response, "stop_reason", None) == "max_tokens":
+            errors.append(f"{step}失败：输出被截断")
             return None
         match = _ARRAY_RE.search(text_of(response.content))
         try:
             value = json.loads(match.group(0)) if match else None
         except json.JSONDecodeError:
+            value = None
+        if not isinstance(value, list):
+            errors.append(f"{step}失败：没有返回 JSON 数组")
             return None
-        return value if isinstance(value, list) else None
+        return value
 
-    def _rewrite(self, query: str) -> List[str]:
+    def _rewrite(self, query: str, errors: List[str]) -> List[str]:
         if self.llm is None:
             return []
-        value = self._ask(REWRITE_SYSTEM, query) or []
+        value = self._ask(REWRITE_SYSTEM, query, "改写", errors) or []
         return list(dict.fromkeys(q.strip() for q in value if isinstance(q, str) and q.strip()))
 
-    def _rerank(self, query: str, sections: List[Section]) -> List[int]:
+    def _rerank(self, query: str, sections: List[Section], errors: List[str]) -> List[int]:
         listing = "\n".join(f"{i}. 【{s.title}】{s.body[:120]}" for i, s in enumerate(sections))
-        value = self._ask(RERANK_SYSTEM, f"顾客的问题：{query}\n\n{listing}")
+        value = self._ask(RERANK_SYSTEM, f"顾客的问题：{query}\n\n{listing}", "重排", errors)
         if not value:
             return []
         order = list(dict.fromkeys(i for i in value if isinstance(i, int) and not isinstance(i, bool)
