@@ -43,6 +43,11 @@ def run_specialist(llm, session: Session, task: str) -> str:
     system = SPECIALIST_SYSTEM.format(
         customer_id=session.customer_id, today=session.store.today.isoformat(),
         memory=session.memory.render(session.customer_id) or "（无历史记忆）")
+    if session.skills is not None:
+        system += "\n\n" + session.skills.prompt_for(task, "specialist")
+        matched = [skill.name for skill, _ in session.skills.select(task, "specialist")]
+        if matched:
+            session.emit("skills", by="specialist", names=matched)
     messages = [{"role": "user", "content": task}]
     outcome = agent_loop(llm, system, messages, box.schemas(SPECIALIST_TOOL_NAMES),
                          lambda name, args: box.run(name, args).content, SPECIALIST_MAX_ROUNDS)

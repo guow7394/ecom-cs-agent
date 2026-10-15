@@ -29,7 +29,8 @@ def first(events, type_, **match):
 
 def test_event_order_for_a_normal_turn():
     events = run(WebSession("C001", "jev", 0.5, mock=True), "A1002 的快递到哪了")
-    assert types(events)[:4] == ["judgment", "gate", "tool_start", "tool_end"]
+    assert types(events)[:5] == ["judgment", "gate", "skills", "tool_start", "tool_end"]
+    assert events[2]["names"] == ["物流查询与催件规范"]
     assert types(events)[-2:] == ["reply", "done"]
     assert events[-2]["route"] == "agent" and events[-2]["ticket_id"] is None
     assert events[-1]["ended"] is False and events[-1]["elapsed_ms"] >= 0

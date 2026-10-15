@@ -37,6 +37,8 @@ TOOL_SCHEMAS = {s["name"]: s for s in [
             {"order_id": _ORDER_ID}, ["order_id"]),
     _schema("register_urge", "为物流异常（超过 72 小时没有更新）的包裹登记催件，快递公司 24 小时内反馈。",
             {"order_id": _ORDER_ID}, ["order_id"]),
+    _schema("load_skill", "加载一份业务处理规范的全文（名字见系统提示里的规范目录）。",
+            {"name": {"type": "string", "description": "规范名称，如 退货退款处理规范"}}, ["name"]),
     _schema("search_policy", "检索售后政策知识库（退货、换货、运费险、保修、定制品、发票等）。",
             {"query": {"type": "string", "description": "要查的问题"}}, ["query"]),
     _schema("apply_refund", "申请退款/退货（敏感操作：系统会校验规则并请顾客确认）。",
@@ -63,9 +65,9 @@ TOOL_SCHEMAS = {s["name"]: s for s in [
             ["reason"]),
 ]}
 
-BASE_TOOL_NAMES = ["query_order", "query_logistics", "register_urge", "search_policy", "change_address",
+BASE_TOOL_NAMES = ["query_order", "query_logistics", "register_urge", "search_policy", "load_skill", "change_address",
                    "remember_preference", "transfer_to_human"]
-SPECIALIST_TOOL_NAMES = ["query_order", "query_logistics", "search_policy",
+SPECIALIST_TOOL_NAMES = ["query_order", "query_logistics", "search_policy", "load_skill",
                          "apply_refund", "create_exchange"]
 
 
@@ -157,6 +159,14 @@ class ToolBox:
         if not hits:
             return ToolResult(True, "未检索到相关政策")
         return ToolResult(True, "\n\n".join(h.render() for h in hits))
+
+    def _load_skill(self, name: str) -> ToolResult:
+        skills = self.session.skills
+        skill = skills.get(name.strip()) if skills else None
+        if skill is None:
+            names = "、".join(s.name for s in skills.skills) if skills else "（无）"
+            return ToolResult(False, f"没有规范「{name}」，可用的有：{names}")
+        return ToolResult(True, f"# {skill.name}\n{skill.body}")
 
     def _remember_preference(self, category: str, value: str) -> ToolResult:
         s = self.session

@@ -124,6 +124,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .step.ok .status { color: var(--ok); }
 .step.fail .status { color: var(--bad); }
 .step .out { color: var(--faint); }
+.step.skill .status { color: var(--violet); }
 
 .confirm {
   background: var(--warn-bg); color: var(--warn); border-radius: var(--radius);

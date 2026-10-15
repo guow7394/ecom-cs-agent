@@ -12,6 +12,7 @@ from .config import DATA_DIR
 from .memory import MemoryStore
 from .permission import ConfirmFn, PermissionGate
 from .rag import PolicyIndex
+from .skills import SkillManager, default_skills
 from .store import Store
 
 
@@ -36,6 +37,7 @@ class Session:
     policies: PolicyIndex
     tool_log: List[dict] = field(default_factory=list)
     handoff: Optional[dict] = None
+    skills: Optional[SkillManager] = None
     # s04-style hook: every step is reported here so a UI can show it live.
     on_event: EventHandler = _ignore_event
 
@@ -54,4 +56,5 @@ def new_session(customer_id: str, memory_root: Path, confirm_fn: ConfirmFn,
         memory=MemoryStore(memory_root, DATA_DIR / "memory_seed"),
         permission=PermissionGate(store, confirm_fn),
         policies=policy_index(),
+        skills=default_skills(),
     )

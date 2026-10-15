@@ -265,6 +265,14 @@ class Turn {
     this.routeTag.textContent = human ? `转人工 · ${reasonText(e.reason)}` : "交给 Agent";
   }
 
+  on_skills(e) {
+    if (!this.steps) this.steps = add(el("div", "block steps"));
+    const row = el("div", "step skill");
+    row.append(el("span", "status", "§ "), el("span", "who", `${WHO[e.by] || e.by} · `),
+      el("span", null, `加载规范：${e.names.join("、")}`));
+    this.steps.appendChild(row);
+  }
+
   on_tool_start(e) {
     if (!this.steps) this.steps = add(el("div", "block steps"));
     const row = el("div", "step");

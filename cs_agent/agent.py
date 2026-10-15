@@ -118,7 +118,7 @@ class CustomerServiceAgent:
 
     # -- the LLM agent --
 
-    def system_prompt(self, judgment: Optional[Judgment]) -> str:
+    def system_prompt(self, judgment: Optional[Judgment], text: str = "") -> str:
         s = self.session
         customer = s.store.customers[s.customer_id]
         memory = s.memory.render(s.customer_id)
@@ -126,6 +126,11 @@ class CustomerServiceAgent:
             customer_id=s.customer_id, customer_name=customer["name"], level=customer["level"],
             today=s.store.today.isoformat(),
             memory=f"顾客记忆：\n{memory}" if memory else "顾客记忆：（无）")
+        if s.skills is not None:
+            prompt += "\n\n" + s.skills.prompt_for(text, "main")
+            matched = [skill.name for skill, _ in s.skills.select(text, "main")]
+            if matched:
+                s.emit("skills", by="main", names=matched)
         if judgment is not None:
             prompt += JUDGE_HINT.format(intent=judgment.intent, zh=INTENT_ZH[judgment.intent],
                                         confidence=judgment.confidence)
@@ -151,7 +156,7 @@ class CustomerServiceAgent:
                 return conclusion
             return box.run(name, args).content
 
-        outcome = agent_loop(self.llm, self.system_prompt(judgment), self.messages,
+        outcome = agent_loop(self.llm, self.system_prompt(judgment, text), self.messages,
                              box.schemas(BASE_TOOL_NAMES) + [SPECIALIST_TOOL], dispatch, self.max_rounds)
         reply, route, reason = outcome.text, "agent", ""
         # Fail safe: a turn the agent could not finish goes to a human, and says why.
