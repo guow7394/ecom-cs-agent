@@ -122,3 +122,12 @@ def test_registry_creates_finds_and_evicts_old_sessions():
     assert reg.get(s3.id) is s3 and reg.get(s2.id) is s2
     assert reg.get(s1.id) is None and not Path(s1.memory_dir).exists()
     assert reg.get("missing") is None
+
+
+def test_sessions_share_one_breaker_per_judge():
+    from cs_agent.resilience import ResilientJudge
+    reg = SessionRegistry(mock=True)
+    a, b = reg.create("C001", "jev", 0.5), reg.create("C002", "jev", 0.5)
+    assert a.agent.judge is b.agent.judge and isinstance(a.agent.judge, ResilientJudge)
+    assert reg.health()["jev"]["state"] == "closed"
+    assert reg.create("C001", "none", 0.5).agent.judge is None

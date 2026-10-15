@@ -89,6 +89,10 @@ def create_app(mock: bool = False) -> FastAPI:
         return {"mock": mock, "judges": available_judges(mock), "default_threshold": default_threshold(),
                 "needs_human_threshold": default_needs_human_threshold()}
 
+    @app.get("/api/health")
+    def health():
+        return {"judges": registry.health()}
+
     @app.get("/api/customers")
     def customers():
         return customers_payload()

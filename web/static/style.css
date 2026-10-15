@@ -76,6 +76,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .orders { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .orders .sub { display: block; color: var(--faint); font-size: 12px; }
 .muted { color: var(--muted); margin: 0; font-size: 13px; white-space: pre-line; }
+.degraded { background: var(--warn-bg); color: var(--warn); border-radius: 6px; padding: 4px 8px; font-size: 13px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
   font: inherit; font-size: 13px; color: var(--text); background: var(--bg);

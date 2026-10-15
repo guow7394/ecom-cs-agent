@@ -98,7 +98,8 @@ class CustomerServiceAgent:
         else:
             self.session.emit("judgment", intent=judgment.intent, intent_zh=INTENT_ZH[judgment.intent],
                               confidence=judgment.confidence, needs_human=judgment.needs_human,
-                              latency_ms=round(judgment.latency_ms), backend=judgment.backend)
+                              latency_ms=round(judgment.latency_ms), backend=judgment.backend,
+                              degraded=judgment.degraded)
         decision = gate(judgment, self.policy)
         self.session.emit("gate", route=decision.route, reason=decision.reason, threshold=decision.threshold,
                           needs_human_threshold=self.policy.needs_human_threshold)
@@ -195,11 +196,17 @@ def build_llm(mock: bool = False):
     return MockLLM() if mock else AnthropicLLM()
 
 
-def build_judge(backend: str, llm, mock: bool = False):
+def build_judge(backend: str, llm, mock: bool = False, resilient: bool = False):
+    """resilient=True (the product) wraps Jev in a circuit breaker with the LLM judge as backup;
+    the experiment uses the bare judge so each arm measures exactly one method."""
     if backend == "none":
         return None
     if backend == "jev":
-        return MockJudge() if mock else JevJudge()
+        primary = MockJudge() if mock else JevJudge()
+        if resilient:
+            from .resilience import ResilientJudge
+            return ResilientJudge(primary, fallback=LLMJudge(llm))
+        return primary
     if backend == "llm":
         return LLMJudge(llm)  # with mock=True, llm is MockLLM, which answers report_judgment
     if backend == "fusion":
@@ -216,7 +223,7 @@ def build_agent(customer_id: str, judge_backend: str = "jev", mock: bool = False
     llm = build_llm(mock)
     session = new_session(customer_id, memory_root, confirm_fn or (lambda _: True))
     return CustomerServiceAgent(
-        llm, session, judge=build_judge(judge_backend, llm, mock),
+        llm, session, judge=build_judge(judge_backend, llm, mock, resilient=True),
         policy=GatePolicy(threshold=default_threshold() if threshold is None else threshold,
                           needs_human_threshold=default_needs_human_threshold()),
         compactor=Compactor(llm_summarizer(llm), transcript_dir=transcript_dir))

@@ -238,6 +238,10 @@ class Turn {
     this.routeTag = el("span", "tag tag-wait", "判断中");
     head.append(el("span", null, title), this.routeTag);
     card.appendChild(head);
+    if (e.degraded) {
+      const why = e.degraded === "熔断中" ? "熔断中，冷却后自动重试" : e.degraded;
+      card.appendChild(el("div", "degraded", `Jev 暂时不可用（${why}），本轮由备用判断层回答`));
+    }
     if (e.error) {
       card.appendChild(el("div", "muted", e.error));
     } else {

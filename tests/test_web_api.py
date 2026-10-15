@@ -103,3 +103,10 @@ def test_frontend_never_injects_html():
     # customer and model text must be inserted with textContent, never parsed as HTML
     js = (server.STATIC_DIR / "app.js").read_text(encoding="utf-8")
     assert "innerHTML" not in js and "insertAdjacentHTML" not in js and "outerHTML" not in js
+
+
+def test_health_reports_the_breaker(client):
+    assert client.get("/api/health").json() == {"judges": {}}            # nothing built yet
+    new_session(client)
+    jev = client.get("/api/health").json()["judges"]["jev"]
+    assert jev["state"] == "closed" and jev["failure_threshold"] == 3

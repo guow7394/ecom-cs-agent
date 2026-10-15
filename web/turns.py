@@ -42,7 +42,7 @@ class TurnRejected(Exception):
 
 class WebSession:
     def __init__(self, customer_id: str, judge: str, threshold: float, mock: bool,
-                 llm=None, confirm_timeout: float = CONFIRM_TIMEOUT):
+                 llm=None, confirm_timeout: float = CONFIRM_TIMEOUT, shared_judge=None):
         self.id = uuid.uuid4().hex[:12]
         self.confirm_timeout = confirm_timeout
         # Fresh copy of the seeded memory per session, so every demo starts from the same data.
@@ -51,7 +51,7 @@ class WebSession:
         session.on_event = self._on_event
         llm = llm or build_llm(mock)
         self.agent = CustomerServiceAgent(
-            llm, session, judge=build_judge(judge, llm, mock),
+            llm, session, judge=shared_judge or build_judge(judge, llm, mock, resilient=True),
             policy=GatePolicy(threshold=threshold, needs_human_threshold=default_needs_human_threshold()),
             compactor=Compactor(llm_summarizer(llm)))
         self.ended = False
@@ -153,6 +153,9 @@ class SessionRegistry:
         self._sessions: "OrderedDict[str, WebSession]" = OrderedDict()
         self._lock = threading.Lock()
         self._llm = None
+        # One judge per backend, shared by every session, so the circuit breaker sees
+        # all traffic: three sessions failing on Jev open it for everyone.
+        self._judges: Dict[str, object] = {}
 
     def _shared_llm(self):
         # One client for all sessions (it is thread-safe); created on first use so the
@@ -162,8 +165,22 @@ class SessionRegistry:
                 self._llm = build_llm(self.mock)
             return self._llm
 
+    def _shared_judge(self, name: str):
+        llm = self._shared_llm()
+        with self._lock:
+            if name not in self._judges:
+                self._judges[name] = build_judge(name, llm, self.mock, resilient=True)
+            return self._judges[name]
+
+    def health(self) -> Dict[str, dict]:
+        """Circuit-breaker status of each judge built so far (judges without a breaker are omitted)."""
+        with self._lock:
+            judges = dict(self._judges)
+        return {name: j.status() for name, j in judges.items() if hasattr(j, "status")}
+
     def create(self, customer_id: str, judge: str, threshold: float) -> WebSession:
-        session = WebSession(customer_id, judge, threshold, self.mock, llm=self._shared_llm())
+        session = WebSession(customer_id, judge, threshold, self.mock, llm=self._shared_llm(),
+                             shared_judge=self._shared_judge(judge))
         with self._lock:
             self._sessions[session.id] = session
             while len(self._sessions) > self.max_sessions:

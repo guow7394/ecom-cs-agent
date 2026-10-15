@@ -110,6 +110,7 @@ class Judgment:
     reason: str = ""
     needs_human: Optional[float] = None   # P(needs a person's judgment), from the second question
     sources: Optional[dict] = None        # per-leg scores (three-way fusion backend only)
+    degraded: Optional[str] = None        # set when a backup judge answered because the primary failed
     raw: Optional[dict] = field(default=None, repr=False)
 
     def to_dict(self) -> dict:
