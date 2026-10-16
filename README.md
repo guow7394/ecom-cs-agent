@@ -224,7 +224,7 @@ python3 -m eval.run_eval --dataset eval/holdout/dataset.jsonl --baseline eval/re
 python3 -m pytest -q
 ```
 
-共 249 个测试，全部离线，不需要 key。覆盖业务规则边界、权限三道闸、RAG、记忆、压缩切点、置信度公式（对照 Jev 文档的例子）、Jev 请求格式与重试、门控、Agent 端到端，以及用真实 anthropic SDK 加假 HTTP 服务器验证的请求格式、指标计算和数据集合法性，还有熔断器的状态切换、轨迹记录和回归检测。
+共 256 个测试，全部离线，不需要 key，每次推送由 GitHub Actions 在 Python 3.9 和 3.12 上自动运行。覆盖业务规则边界、权限三道闸、RAG、记忆、压缩切点、置信度公式（对照 Jev 文档的例子）、Jev 请求格式与重试、门控、Agent 端到端，以及用真实 anthropic SDK 加假 HTTP 服务器验证的请求格式、指标计算和数据集合法性，还有熔断器的状态切换、轨迹记录、回归检测和显著性检验。
 
 ## 目录
 
