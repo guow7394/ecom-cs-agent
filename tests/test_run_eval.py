@@ -10,6 +10,7 @@ def test_mock_run_produces_report(tmp_path):
                 "--out", str(tmp_path)])
     report = (out / "report.md").read_text(encoding="utf-8")
     assert "MOCK 模式" in report and "阈值扫描" in report and "区分能力" in report and "校准" in report
+    assert "## 统计显著性" in report
     summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
     # each judge arm is scored twice: intent-only gate (v1) and intent + needs_human gate
     assert set(summary["summary"]) == {"baseline", "jev", "jev+nh", "llm", "llm+nh", "fusion", "fusion+nh"}

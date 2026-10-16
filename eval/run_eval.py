@@ -31,6 +31,7 @@ from cs_agent.judge import GatePolicy, Judgment, build_state, gate
 from cs_agent.session import new_session
 from eval.metrics import DATASET_PATH, calibration, load_dataset, materialize, separation, summarize
 from eval.regression import compare, load_summary, print_check, render_check
+from eval.stats import analyze, render_stats
 from eval.quality import QualityJudge
 from eval.report import ARM_LABEL, pct, render_report
 
@@ -175,12 +176,12 @@ def main(argv=None) -> Path:
             f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
     result = {"meta": meta, "summary": summary,
               "calibration": {a: {"bins": b, "ece": e} for a, (b, e) in calib.items()},
-              "separation": sep, "rows": rows_main}
+              "separation": sep, "stats": analyze(rows_main), "rows": rows_main}
     check = compare(result, baseline) if baseline else None
     if check:
         result["regression_check"] = check
     (out_dir / "summary.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    report = render_report(meta, summary, calib, sep, rows_main, cases)
+    report = render_report(meta, summary, calib, sep, rows_main, cases) + "\n\n" + render_stats(result["stats"])
     if check:
         report += "\n\n" + render_check(check)
     (out_dir / "report.md").write_text(report, encoding="utf-8")
